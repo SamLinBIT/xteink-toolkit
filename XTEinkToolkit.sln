@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35527.113
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XTEinkToolkit", "XTEinkToolkit\XTEinkToolkit.csproj", "{47953C73-0D83-4A60-974D-0EF1AFD2D033}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XTEinkPlayground", "XTEinkPlayground\XTEinkPlayground.csproj", "{CA0BAEBD-C34F-41CC-9F5B-B4A854456808}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XTEinkTools", "XTEinkTools\XTEinkTools.csproj", "{627164D2-8B30-454B-8E4B-402A9C5BA1F9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{47953C73-0D83-4A60-974D-0EF1AFD2D033}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{47953C73-0D83-4A60-974D-0EF1AFD2D033}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{47953C73-0D83-4A60-974D-0EF1AFD2D033}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{47953C73-0D83-4A60-974D-0EF1AFD2D033}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CA0BAEBD-C34F-41CC-9F5B-B4A854456808}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CA0BAEBD-C34F-41CC-9F5B-B4A854456808}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CA0BAEBD-C34F-41CC-9F5B-B4A854456808}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CA0BAEBD-C34F-41CC-9F5B-B4A854456808}.Release|Any CPU.Build.0 = Release|Any CPU
+		{627164D2-8B30-454B-8E4B-402A9C5BA1F9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{627164D2-8B30-454B-8E4B-402A9C5BA1F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{627164D2-8B30-454B-8E4B-402A9C5BA1F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{627164D2-8B30-454B-8E4B-402A9C5BA1F9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
