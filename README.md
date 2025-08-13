@@ -12,6 +12,8 @@
 
 字体制作工具
 
+![Screenshot](readme_res/screenshot.png)
+
 
 
 

@@ -14,7 +14,9 @@ using XTEinkTools;
 
 namespace XTEinkToolkit
 {
-    // TODO: 允许加载TTF字体文件而无需安装
+    // TODO: 试试看负数行间距？
+    // TODO: 试试看字符间距？
+    // TODO: 添加单屏渲染字数量，用于估算翻页加载事件。
     public partial class FrmMain : Form
     {
 
