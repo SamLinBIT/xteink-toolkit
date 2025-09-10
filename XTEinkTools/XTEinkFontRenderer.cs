@@ -48,8 +48,20 @@ namespace XTEinkTools
         /// </summary>
         public SuperSamplingMode SuperSampling { get; set; } = SuperSamplingMode.None;
 
+        /// <summary>
+        /// SuperSampling模式下用户阈值的权重，范围0.0-1.0
+        /// 值越高越接近用户设置，值越低越依赖自动算法
+        /// 默认0.3，表示用户阈值占70%权重
+        /// </summary>
+        public double SuperSamplingUserWeight { get; set; } = 0.3;
+
         private Bitmap _tempRenderSurface;
         private Graphics _tempGraphics;
+
+        // SuperSampling字体缓存
+        private Font _cachedSuperSamplingFont;
+        private float _cachedSuperSamplingSize;
+        private SuperSamplingMode _cachedSuperSamplingMode;
 
         public delegate void RenderMethod(int x, int y, bool pixel);
 
@@ -123,22 +135,11 @@ namespace XTEinkTools
             this._tempGraphics = Graphics.FromImage(this._tempRenderSurface);
             this._tempGraphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
 
-            // SuperSampling模式下使用专门优化的渲染选项
-            if (SuperSampling != SuperSamplingMode.None)
-            {
-                this._tempGraphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                this._tempGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                this._tempGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-                this._tempGraphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            }
-            else
-            {
-                // 普通模式：同样追求高质量，为小屏幕优化每个像素
-                this._tempGraphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                this._tempGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-                this._tempGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-                this._tempGraphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-            }
+            // 字体渲染是一次性离线工作，统一使用最高质量设置
+            this._tempGraphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            this._tempGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            this._tempGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+            this._tempGraphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
         }
 
         /// <summary>
@@ -274,19 +275,34 @@ namespace XTEinkTools
                 }
             }
 
-            // 创建缩放后的字体（如果需要）
+            // 创建缩放后的字体（如果需要），使用缓存避免重复创建
             Font renderFont = this.Font;
             if (SuperSampling != SuperSamplingMode.None)
             {
                 float scaledSize = this.Font.Size * scale;
-                renderFont = new Font(this.Font.FontFamily, scaledSize, this.Font.Style);
+
+                // 检查缓存是否有效
+                if (_cachedSuperSamplingFont == null ||
+                    _cachedSuperSamplingSize != scaledSize ||
+                    _cachedSuperSamplingMode != SuperSampling ||
+                    !_cachedSuperSamplingFont.FontFamily.Equals(this.Font.FontFamily) ||
+                    _cachedSuperSamplingFont.Style != this.Font.Style)
+                {
+                    // 缓存无效，创建新字体并更新缓存
+                    _cachedSuperSamplingFont?.Dispose();
+                    _cachedSuperSamplingFont = new Font(this.Font.FontFamily, scaledSize, this.Font.Style);
+                    _cachedSuperSamplingSize = scaledSize;
+                    _cachedSuperSamplingMode = SuperSampling;
+                }
+
+                renderFont = _cachedSuperSamplingFont;
             }
 
             // 绘制字符
             this._tempGraphics.DrawString(chr.ToString(), renderFont, Brushes.White, 0, 0, _format);
 
             // 应用SuperSampling处理
-            if (SuperSampling != SuperSamplingMode.None)
+            if (SuperSampling != SuperSamplingMode.None && IsSupersamplingWorthwhile(renderer.Width, renderer.Height))
             {
                 using (Bitmap scaledBitmap = ApplySuperSampling(_tempRenderSurface, renderer.Width, renderer.Height))
                 {
@@ -294,16 +310,10 @@ namespace XTEinkTools
                     int optimizedThreshold = CalculateOptimizedThreshold(scaledBitmap, this.LightThrehold, charCodePoint);
                     renderer.LoadFromBitmap(charCodePoint, scaledBitmap, 0, 0, optimizedThreshold);
                 }
-
-                // 释放缩放字体资源
-                if (renderFont != this.Font)
-                {
-                    renderFont.Dispose();
-                }
             }
             else
             {
-                // 无SuperSampling，使用原有逻辑
+                // 无SuperSampling或字符过小，使用原有逻辑
                 renderer.LoadFromBitmap(charCodePoint, _tempRenderSurface, 0, 0, this.LightThrehold);
             }
         }
@@ -329,16 +339,33 @@ namespace XTEinkTools
                 int nonBlackPixels = 0;
                 int uniqueGrayLevels = 0;
 
-                // 统计灰度分布
-                for (int y = 0; y < bitmap.Height; y++)
+                // 统计灰度分布 - 使用快速像素访问
+                var bitmapData = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height),
+                    System.Drawing.Imaging.ImageLockMode.ReadOnly, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+                try
                 {
-                    for (int x = 0; x < bitmap.Width; x++)
+                    unsafe
                     {
-                        Color pixel = bitmap.GetPixel(x, y);
-                        int gray = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
-                        histogram[gray]++;
-                        if (gray > 0) nonBlackPixels++;
+                        byte* ptr = (byte*)bitmapData.Scan0;
+                        int bytes = Math.Abs(bitmapData.Stride) * bitmap.Height;
+
+                        for (int i = 0; i < bytes; i += 3)
+                        {
+                            // BGR格式
+                            int b = ptr[i];
+                            int g = ptr[i + 1];
+                            int r = ptr[i + 2];
+
+                            int gray = (int)(r * 0.299 + g * 0.587 + b * 0.114);
+                            histogram[gray]++;
+                            if (gray > 0) nonBlackPixels++;
+                        }
                     }
+                }
+                finally
+                {
+                    bitmap.UnlockBits(bitmapData);
                 }
 
                 // 计算实际的灰度级别数量
@@ -360,21 +387,38 @@ namespace XTEinkTools
                     int scale = (int)SuperSampling;
                     // 标点符号倾向于使用更高的阈值来保持锐利
                     int conservativeThreshold = userThreshold + (scale - 1) * 5;
-                    return Math.Min(200, Math.Max(userThreshold, conservativeThreshold));
+                    return Math.Min(220, Math.Max(userThreshold, conservativeThreshold));
                 }
+
+                // 检测字符复杂度（针对复杂汉字如"剪"字的细节丢失问题）
+                bool isComplexCharacter = IsComplexCharacter(charCodePoint, histogram, totalPixels);
 
                 // 对普通文字字符使用改进的Otsu算法
                 int otsuThreshold = CalculateOtsuThreshold(histogram, totalPixels);
 
-                // 根据SuperSampling级别调整策略
+                // 复杂字符优先使用用户阈值，保留细节
+                double userWeight = SuperSamplingUserWeight;
+                if (isComplexCharacter)
+                {
+                    // 复杂字符（如剪、繁体字）提高用户权重到85%，减少自动算法干预
+                    userWeight = Math.Max(userWeight, 0.85);
+                }
+
+                // 根据SuperSampling级别调整策略，但对复杂字符更保守
                 int scale2 = (int)SuperSampling;
-                double adjustmentFactor = 1.0 - (scale2 - 1) * 0.1; // 高倍SuperSampling使用更低阈值保留细节
+                double adjustmentFactor = isComplexCharacter
+                    ? 1.0 - (scale2 - 1) * 0.05  // 复杂字符：减少阈值降低幅度
+                    : 1.0 - (scale2 - 1) * 0.1;  // 普通字符：原有逻辑
 
-                // 混合用户阈值和Otsu阈值，倾向于保留更多细节
-                int optimizedThreshold = (int)(otsuThreshold * adjustmentFactor * 0.7 + userThreshold * 0.3);
+                // 使用用户可配置的权重混合阈值
+                double otsuWeight = 1.0 - userWeight;
+                int optimizedThreshold = (int)(otsuThreshold * adjustmentFactor * otsuWeight + userThreshold * userWeight);
 
-                // 确保阈值在合理范围内
-                return Math.Max(32, Math.Min(192, optimizedThreshold));
+                // 扩大阈值范围，给复杂字符更多空间
+                int minThreshold = isComplexCharacter ? Math.Max(userThreshold - 20, 16) : 32;
+                int maxThreshold = isComplexCharacter ? 240 : 192;
+
+                return Math.Max(minThreshold, Math.Min(maxThreshold, optimizedThreshold));
             }
             catch
             {
@@ -459,6 +503,129 @@ namespace XTEinkTools
             return threshold;
         }
 
+        /// <summary>
+        /// 判断字符是否为复杂字符（如"剪"字）
+        /// 复杂字符需要更保守的阈值处理以保留细节
+        /// </summary>
+        /// <param name="charCodePoint">字符的Unicode码点</param>
+        /// <param name="histogram">字符图像的灰度直方图</param>
+        /// <param name="totalPixels">总像素数</param>
+        /// <returns>是否为复杂字符</returns>
+        private bool IsComplexCharacter(int charCodePoint, int[] histogram, int totalPixels)
+        {
+            try
+            {
+                // 1. 基于Unicode范围的预判断
+                if (IsKnownComplexCharacter(charCodePoint))
+                {
+                    return true;
+                }
+
+                // 2. 分析灰度分布复杂度
+                int nonZeroLevels = 0;
+                int midGrayPixels = 0; // 中间灰度像素数（64-192范围）
+
+                for (int i = 0; i < 256; i++)
+                {
+                    if (histogram[i] > 0)
+                    {
+                        nonZeroLevels++;
+                        if (i >= 64 && i <= 192)
+                        {
+                            midGrayPixels += histogram[i];
+                        }
+                    }
+                }
+
+                // 3. 复杂度判断条件
+                // 条件1：灰度级别多（表示细节丰富）
+                bool hasRichGrayLevels = nonZeroLevels > 12;
+
+                // 条件2：中间灰度比例高（表示抗锯齿边缘多，笔画复杂）
+                double midGrayRatio = (double)midGrayPixels / totalPixels;
+                bool hasComplexEdges = midGrayRatio > 0.15;
+
+                // 条件3：非零像素密度适中（太少是简单符号，太多是粗体，适中是复杂结构）
+                int nonBlackPixels = totalPixels - histogram[0];
+                double pixelDensity = (double)nonBlackPixels / totalPixels;
+                bool hasModerateDensity = pixelDensity > 0.1 && pixelDensity < 0.6;
+
+                // 满足2个或以上条件认为是复杂字符
+                int complexityScore = (hasRichGrayLevels ? 1 : 0) +
+                                    (hasComplexEdges ? 1 : 0) +
+                                    (hasModerateDensity ? 1 : 0);
+
+                return complexityScore >= 2;
+            }
+            catch
+            {
+                return false; // 分析失败时保守处理
+            }
+        }
+
+        /// <summary>
+        /// 判断是否为已知的复杂字符
+        /// </summary>
+        /// <param name="charCodePoint">字符码点</param>
+        /// <returns>是否为已知复杂字符</returns>
+        private bool IsKnownComplexCharacter(int charCodePoint)
+        {
+            // 一些已知的特别复杂的汉字
+            var complexChars = new int[] {
+                0x526A, // 剪
+                0x9F52, // 齒
+                0x9F61, // 齡
+                0x8B9E, // 謞
+                0x8B93, // 讓
+                0x9EBC, // 麼
+                0x9F52, // 齒
+                0x7E41, // 繁
+                0x9F77, // 靷
+                0x9F72, // 靲
+                0x9F78, // 靸
+                0x8056  // 聖
+            };
+
+            // 检查是否为已知复杂字符
+            for (int i = 0; i < complexChars.Length; i++)
+            {
+                if (charCodePoint == complexChars[i])
+                    return true;
+            }
+
+            // 一些复杂字符的Unicode范围
+            // CJK统一汉字扩展A区 (U+3400-U+4DBF) - 通常比较复杂
+            if (charCodePoint >= 0x3400 && charCodePoint <= 0x4DBF)
+                return true;
+
+            // CJK兼容汉字 (U+F900-U+FAFF) - 通常是复杂的异体字
+            if (charCodePoint >= 0xF900 && charCodePoint <= 0xFAFF)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// 判断字符是否值得进行SuperSampling处理
+        /// 对于过小的字符，SuperSampling效果有限且浪费性能
+        /// </summary>
+        /// <param name="width">字符宽度</param>
+        /// <param name="height">字符高度</param>
+        /// <returns>是否值得SuperSampling</returns>
+        private bool IsSupersamplingWorthwhile(int width, int height)
+        {
+            // 字符面积过小时SuperSampling效果有限
+            int area = width * height;
+            if (area < 64) // 小于8x8像素的字符
+                return false;
+
+            // 单边过小的字符也跳过（如细线条）
+            if (width < 6 || height < 6)
+                return false;
+
+            return true;
+        }
+
         void IDisposable.Dispose()
         {
             try
@@ -471,7 +638,11 @@ namespace XTEinkTools
                 this._tempRenderSurface?.Dispose();
             }
             catch { }
-
+            try
+            {
+                _cachedSuperSamplingFont?.Dispose();
+            }
+            catch { }
         }
     }
 }
