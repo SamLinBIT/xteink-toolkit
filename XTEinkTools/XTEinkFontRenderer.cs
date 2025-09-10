@@ -128,15 +128,19 @@ namespace XTEinkTools
             this._tempGraphics = Graphics.FromImage(this._tempRenderSurface);
             this._tempGraphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
 
-            // 字体渲染是一次性离线工作，统一使用最高质量设置
-            this._tempGraphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            // ===== 1. 超采样前：渲染大字 ===================================
             this._tempGraphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
-            this._tempGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+            this._tempGraphics.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            this._tempGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; // 最高质量插值
             this._tempGraphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            // 注意：TextRenderingHint 通过 syncSettings() 根据用户AAMode动态设置
         }
 
         /// <summary>
         /// 应用SuperSampling缩放处理
+        /// SuperSampling分为两个阶段：
+        /// 1. 字体渲染阶段：在高分辨率画布上渲染字体（需要抗锯齿）
+        /// 2. 缩放阶段：将高分辨率位图缩放到目标尺寸（避免过度平滑）
         /// </summary>
         /// <param name="sourceBitmap">源位图</param>
         /// <param name="targetWidth">目标宽度</param>
@@ -157,13 +161,13 @@ namespace XTEinkTools
 
                 using (Graphics g = Graphics.FromImage(targetBitmap))
                 {
-                    // 设置专门针对文字优化的缩放选项
-                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    // ===== 2. 超采样后：缩图回目标尺寸 ==============================
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.None;
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor; // 最邻域=最锐利
                     g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half; // 避免半像素偏移
 
-                    // 使用Bicubic算法更好地保留字体曲线和抗锯齿细节
+                    // 使用NearestNeighbor保持最大锐利度，最小化亮度损失
                     g.DrawImage(sourceBitmap,
                         new Rectangle(0, 0, targetWidth, targetHeight),
                         new Rectangle(0, 0, sourceBitmap.Width, sourceBitmap.Height),
@@ -394,8 +398,9 @@ namespace XTEinkTools
                     return Math.Max(32, Math.Min(200, complexThreshold));
                 }
 
-                // 普通字符：直接使用用户阈值
-                return userThreshold;
+                // 普通字符：使用用户阈值，但补偿SuperSampling导致的亮度损失
+                int compensatedThreshold = CompensateForSuperSamplingBrightening(userThreshold);
+                return compensatedThreshold;
             }
             catch
             {
@@ -524,6 +529,47 @@ namespace XTEinkTools
             }
 
             return threshold;
+        }
+
+        /// <summary>
+        /// 补偿SuperSampling导致的亮度损失
+        /// SuperSampling缩放过程会让字体变浅，需要降低阈值来补偿
+        /// </summary>
+        /// <param name="userThreshold">用户设置的原始阈值</param>
+        /// <returns>补偿后的阈值</returns>
+        private int CompensateForSuperSamplingBrightening(int userThreshold)
+        {
+            int scale = (int)SuperSampling;
+
+            // 根据SuperSampling级别计算补偿量
+            // 级别越高，亮度损失越明显，需要更多补偿
+            int compensation = 0;
+            switch (SuperSampling)
+            {
+                case SuperSamplingMode.x2:
+                    compensation = 15;  // 2倍采样：轻微补偿
+                    break;
+                case SuperSamplingMode.x4:
+                    compensation = 25;  // 4倍采样：中等补偿
+                    break;
+                case SuperSamplingMode.x8:
+                    compensation = 35;  // 8倍采样：较大补偿
+                    break;
+                default:
+                    compensation = 0;
+                    break;
+            }
+
+            // 应用补偿：降低阈值让更多像素保持黑色
+            int compensatedThreshold = userThreshold - compensation;
+
+            // 防止阈值过低导致过暗
+            compensatedThreshold = Math.Max(16, compensatedThreshold);
+
+            // 防止阈值过高导致过亮
+            compensatedThreshold = Math.Min(240, compensatedThreshold);
+
+            return compensatedThreshold;
         }
 
         void IDisposable.Dispose()
