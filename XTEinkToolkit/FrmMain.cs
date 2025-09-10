@@ -232,7 +232,7 @@ namespace XTEinkToolkit
             renderer.CharSpacingPx = (int)numCharSpacing.Value;
             renderer.AAMode = aaModesEnum[whichAAMode];
 
-            // 配置SuperSampling模式：勾选=启用256x终极超采样，不勾选=无超采样
+            // 配置SuperSampling模式：勾选=启用32x超采样，不勾选=无超采样
             renderer.EnableUltimateSuperSampling = chkSuperSampling.Checked;
 
         }

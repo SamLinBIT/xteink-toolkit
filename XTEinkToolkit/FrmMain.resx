@@ -838,7 +838,7 @@
     <value>9</value>
   </data>
   <data name="chkSuperSampling.Text" xml:space="preserve">
-    <value>启用256x终极超采样（激光打印级质量）</value>
+    <value>启用32x超采样</value>
   </data>
   <data name="&gt;&gt;chkSuperSampling.Name" xml:space="preserve">
     <value>chkSuperSampling</value>
