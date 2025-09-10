@@ -290,7 +290,9 @@ namespace XTEinkTools
             {
                 using (Bitmap scaledBitmap = ApplySuperSampling(_tempRenderSurface, renderer.Width, renderer.Height))
                 {
-                    renderer.LoadFromBitmap(charCodePoint, scaledBitmap, 0, 0, this.LightThrehold);
+                    // SuperSampling模式使用优化的阈值策略，保留更多灰度细节
+                    int optimizedThreshold = CalculateOptimizedThreshold(scaledBitmap, this.LightThrehold);
+                    renderer.LoadFromBitmap(charCodePoint, scaledBitmap, 0, 0, optimizedThreshold);
                 }
 
                 // 释放缩放字体资源
@@ -304,6 +306,100 @@ namespace XTEinkTools
                 // 无SuperSampling，使用原有逻辑
                 renderer.LoadFromBitmap(charCodePoint, _tempRenderSurface, 0, 0, this.LightThrehold);
             }
+        }
+
+        /// <summary>
+        /// 为SuperSampling模式计算优化的二值化阈值
+        /// 分析图像特征，保留更多抗锯齿细节
+        /// </summary>
+        /// <param name="bitmap">SuperSampling处理后的位图</param>
+        /// <param name="userThreshold">用户设置的原始阈值</param>
+        /// <returns>优化后的阈值</returns>
+        private int CalculateOptimizedThreshold(Bitmap bitmap, int userThreshold)
+        {
+            try
+            {
+                // 分析图像像素分布
+                var histogram = new int[256];
+                int totalPixels = bitmap.Width * bitmap.Height;
+                int nonBlackPixels = 0;
+
+                // 统计灰度分布
+                for (int y = 0; y < bitmap.Height; y++)
+                {
+                    for (int x = 0; x < bitmap.Width; x++)
+                    {
+                        Color pixel = bitmap.GetPixel(x, y);
+                        int gray = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
+                        histogram[gray]++;
+                        if (gray > 0) nonBlackPixels++;
+                    }
+                }
+
+                // 如果图像主要是黑色（背景），使用用户阈值
+                if (nonBlackPixels < totalPixels * 0.1)
+                {
+                    return userThreshold;
+                }
+
+                // 使用改进的Otsu算法，但考虑用户偏好
+                int otsuThreshold = CalculateOtsuThreshold(histogram, totalPixels);
+
+                // 根据SuperSampling级别调整策略
+                int scale = (int)SuperSampling;
+                double adjustmentFactor = 1.0 - (scale - 1) * 0.1; // 高倍SuperSampling使用更低阈值保留细节
+
+                // 混合用户阈值和Otsu阈值，倾向于保留更多细节
+                int optimizedThreshold = (int)(otsuThreshold * adjustmentFactor * 0.7 + userThreshold * 0.3);
+
+                // 确保阈值在合理范围内
+                return Math.Max(32, Math.Min(192, optimizedThreshold));
+            }
+            catch
+            {
+                // 如果计算失败，回退到用户阈值
+                return userThreshold;
+            }
+        }
+
+        /// <summary>
+        /// 使用Otsu算法计算最佳二值化阈值
+        /// </summary>
+        /// <param name="histogram">像素灰度直方图</param>
+        /// <param name="totalPixels">总像素数</param>
+        /// <returns>最佳阈值</returns>
+        private int CalculateOtsuThreshold(int[] histogram, int totalPixels)
+        {
+            double sum = 0;
+            for (int i = 0; i < 256; i++)
+                sum += i * histogram[i];
+
+            double sumB = 0;
+            int wB = 0;
+            double maximum = 0.0;
+            int threshold = 0;
+
+            for (int i = 0; i < 256; i++)
+            {
+                wB += histogram[i];
+                if (wB == 0) continue;
+
+                int wF = totalPixels - wB;
+                if (wF == 0) break;
+
+                sumB += i * histogram[i];
+                double mB = sumB / wB;
+                double mF = (sum - sumB) / wF;
+                double between = wB * wF * (mB - mF) * (mB - mF);
+
+                if (between > maximum)
+                {
+                    maximum = between;
+                    threshold = i;
+                }
+            }
+
+            return threshold;
         }
 
         void IDisposable.Dispose()
