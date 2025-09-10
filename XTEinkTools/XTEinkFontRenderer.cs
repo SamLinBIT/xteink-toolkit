@@ -10,7 +10,6 @@ using System.Runtime.Versioning;
 
 namespace XTEinkTools
 {
-    [SupportedOSPlatform("windows")]
     public class XTEinkFontRenderer : IDisposable
     {
         public enum AntiAltasMode
@@ -32,9 +31,9 @@ namespace XTEinkTools
         public bool EnableUltimateSuperSampling { get; set; } = false;
 
         #region private fields
-        private Bitmap? _tempRenderSurface;
-        private Graphics? _tempGraphics;
-        private Font? _cachedSuperSamplingFont;
+        private Bitmap _tempRenderSurface;
+        private Graphics _tempGraphics;
+        private Font _cachedSuperSamplingFont;
         private readonly StringFormat _format = new(StringFormat.GenericTypographic);
         private const int ULTRA_SCALE = 32;
         private const int BAYER_SIZE = 16;
@@ -91,9 +90,9 @@ namespace XTEinkTools
 
         public void Dispose()
         {
-            _tempGraphics?.Dispose();
-            _tempRenderSurface?.Dispose();
-            _cachedSuperSamplingFont?.Dispose();
+            _tempGraphics.Dispose();
+            _tempRenderSurface.Dispose();
+            _cachedSuperSamplingFont.Dispose();
             _format.Dispose();
         }
         #endregion
@@ -369,8 +368,8 @@ namespace XTEinkTools
             if (_tempRenderSurface != null && _tempGraphics != null &&
                 _tempRenderSurface.Width == width && _tempRenderSurface.Height == height) return;
 
-            _tempGraphics?.Dispose();
-            _tempRenderSurface?.Dispose();
+            _tempGraphics.Dispose();
+            _tempRenderSurface.Dispose();
 
             _tempRenderSurface = new Bitmap(width, height);
             _tempRenderSurface.SetResolution(96, 96);
