@@ -90,10 +90,10 @@ namespace XTEinkTools
 
         public void Dispose()
         {
-            _tempGraphics.Dispose();
-            _tempRenderSurface.Dispose();
-            _cachedSuperSamplingFont.Dispose();
-            _format.Dispose();
+            _tempGraphics?.Dispose();
+            _tempRenderSurface?.Dispose();
+            _cachedSuperSamplingFont?.Dispose();
+            _format?.Dispose();
         }
         #endregion
 
