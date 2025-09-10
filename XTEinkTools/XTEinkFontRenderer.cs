@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿using System;
+﻿﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -310,13 +310,16 @@ namespace XTEinkTools
         {
             char chr = (char)charCodePoint;
             if (chr > 255 && char.IsControl(chr)) return;
-            // 垂直/行距/字距 同旧逻辑，但需要按scale缩放
+
+            // 垂直字体变换（需要按scale缩放）
             if (IsVerticalFont)
             {
                 m.Translate(0, targetH * scale);
                 m.Rotate(-90);
             }
-            bool center = true; // 简写
+
+            // 行对齐逻辑必须与legacy路径一致！
+            bool center = IsOldLineAlignment ? LineSpacingPx < 0 : true;
             if (center)
             {
                 if (IsVerticalFont)
@@ -324,6 +327,8 @@ namespace XTEinkTools
                 else
                     m.Translate(0, LineSpacingPx * scale / 2f);
             }
+
+            // 字符间距（仅对非ASCII字符，需要按scale缩放）
             if (CharSpacingPx != 0 && chr > (char)255)
             {
                 if (IsVerticalFont)
