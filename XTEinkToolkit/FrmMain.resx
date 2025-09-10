@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+﻿﻿﻿﻿﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -715,7 +715,7 @@
     <value>6, 491</value>
   </data>
   <data name="panel4.Size" type="System.Drawing.Size, System.Drawing">
-    <value>257, 30</value>
+    <value>257, 55</value>
   </data>
   <data name="panel4.TabIndex" type="System.Int32, mscorlib">
     <value>9</value>
@@ -829,10 +829,10 @@
     <value>NoControl</value>
   </data>
   <data name="lblSuperSampling.Location" type="System.Drawing.Point, System.Drawing">
-    <value>4, 28</value>
+    <value>4, 26</value>
   </data>
   <data name="lblSuperSampling.Size" type="System.Drawing.Size, System.Drawing">
-    <value>80, 16</value>
+    <value>90, 16</value>
   </data>
   <data name="lblSuperSampling.TabIndex" type="System.Int32, mscorlib">
     <value>8</value>
@@ -859,7 +859,7 @@
     <value>NoControl</value>
   </data>
   <data name="cmbSuperSampling.Location" type="System.Drawing.Point, System.Drawing">
-    <value>90, 25</value>
+    <value>100, 25</value>
   </data>
   <data name="cmbSuperSampling.Size" type="System.Drawing.Size, System.Drawing">
     <value>120, 22</value>
