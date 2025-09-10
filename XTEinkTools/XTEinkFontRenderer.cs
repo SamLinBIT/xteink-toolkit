@@ -368,8 +368,8 @@ namespace XTEinkTools
             if (_tempRenderSurface != null && _tempGraphics != null &&
                 _tempRenderSurface.Width == width && _tempRenderSurface.Height == height) return;
 
-            _tempGraphics.Dispose();
-            _tempRenderSurface.Dispose();
+            _tempGraphics?.Dispose();
+            _tempRenderSurface?.Dispose();
 
             _tempRenderSurface = new Bitmap(width, height);
             _tempRenderSurface.SetResolution(96, 96);
