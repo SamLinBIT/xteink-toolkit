@@ -71,7 +71,7 @@ namespace XTEinkToolkit
             chkSuperSampling.Checked = false;
 
             // 设置工具提示
-            toolTip1.SetToolTip(chkSuperSampling, "启用326x超采样");
+            toolTip1.SetToolTip(chkSuperSampling, "启用32x超采样");
         }
 
 
