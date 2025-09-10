@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -84,99 +84,13 @@ namespace XTEinkToolkit
             // 设置默认选中项为"无 (1x)"
             cmbSuperSampling.SelectedIndex = 0;
 
-            // 初始化用户权重控制
-            InitializeUserWeightControls();
 
             // 设置工具提示
             toolTip1.SetToolTip(cmbSuperSampling, "超采样可以显著提升小字号的渲染清晰度，但会增加处理时间");
             toolTip1.SetToolTip(lblSuperSampling, "超采样通过高分辨率渲染再缩放来提升字体质量");
         }
 
-        /// <summary>
-        /// 初始化用户权重控制控件
-        /// </summary>
-        private void InitializeUserWeightControls()
-        {
-            // 创建用户权重标签
-            var lblUserWeight = new Label();
-            lblUserWeight.Name = "lblUserWeight";
-            lblUserWeight.Text = "阈值控制：";
-            lblUserWeight.AutoSize = true;
-            lblUserWeight.Location = new Point(4, 52); // 在SuperSampling下拉框下方
 
-            // 创建用户权重滑条
-            trackBarUserWeight = new TrackBar();
-            trackBarUserWeight.Name = "trackBarUserWeight";
-            trackBarUserWeight.Location = new Point(70, 48);
-            trackBarUserWeight.Size = new Size(120, 45);
-            trackBarUserWeight.Minimum = 0;
-            trackBarUserWeight.Maximum = 100;
-            trackBarUserWeight.Value = 70; // 默认0.7
-            trackBarUserWeight.TickFrequency = 25;
-            trackBarUserWeight.TickStyle = TickStyle.BottomRight;
-            trackBarUserWeight.ValueChanged += TrackBarUserWeight_ValueChanged;
-
-            // 创建权重值显示标签
-            lblUserWeightValue = new Label();
-            lblUserWeightValue.Name = "lblUserWeightValue";
-            lblUserWeightValue.Text = "70%";
-            lblUserWeightValue.AutoSize = true;
-            lblUserWeightValue.Location = new Point(195, 60);
-            lblUserWeightValue.ForeColor = Color.Blue;
-
-            // 创建说明标签
-            var lblUserWeightHint = new Label();
-            lblUserWeightHint.Name = "lblUserWeightHint";
-            lblUserWeightHint.Text = "← 算法控制        用户控制 →";
-            lblUserWeightHint.AutoSize = true;
-            lblUserWeightHint.Location = new Point(70, 85);
-            lblUserWeightHint.Font = new Font(lblUserWeightHint.Font.FontFamily, 8);
-            lblUserWeightHint.ForeColor = Color.Gray;
-
-            // 添加到panel4（SuperSampling所在的面板）
-            panel4.Controls.Add(lblUserWeight);
-            panel4.Controls.Add(trackBarUserWeight);
-            panel4.Controls.Add(lblUserWeightValue);
-            panel4.Controls.Add(lblUserWeightHint);
-
-            // 调整panel4的高度以容纳新控件
-            panel4.Height = 110;
-
-            // 设置工具提示
-            toolTip1.SetToolTip(trackBarUserWeight,
-                "控制SuperSampling模式下的阈值策略：\n" +
-                "• 左侧：更多算法优化，自动调整每个字符\n" +
-                "• 右侧：更多用户控制，接近手动设置的阈值\n" +
-                "• 复杂字符（如\"剪\"字）会自动提高用户权重");
-            toolTip1.SetToolTip(lblUserWeight, "控制SuperSampling阈值策略的权重分配");
-        }
-
-        // 添加用户权重滑条事件处理
-        private void TrackBarUserWeight_ValueChanged(object sender, EventArgs e)
-        {
-            if (trackBarUserWeight != null && lblUserWeightValue != null)
-            {
-                double userWeight = trackBarUserWeight.Value / 100.0;
-                string description = GetWeightDescription(userWeight);
-                lblUserWeightValue.Text = $"{trackBarUserWeight.Value}% ({description})";
-
-                // 触发预览更新
-                DoPreview();
-            }
-        }
-
-        private string GetWeightDescription(double userWeight)
-        {
-            if (userWeight >= 0.9) return "完全用户";
-            if (userWeight >= 0.7) return "主要用户";
-            if (userWeight >= 0.5) return "平衡";
-            if (userWeight >= 0.3) return "主要算法";
-            return "完全算法";
-        }
-
-        // 添加字段
-        private TrackBar trackBarUserWeight;
-        private Label lblUserWeightValue;
 
         private void btnSelectFont_Click(object sender, EventArgs e)
         {
@@ -343,15 +257,6 @@ namespace XTEinkToolkit
             };
             renderer.SuperSampling = superSamplingModes[Math.Max(0, Math.Min(cmbSuperSampling.SelectedIndex, superSamplingModes.Length - 1))];
 
-            // 配置SuperSampling用户权重
-            if (trackBarUserWeight != null)
-            {
-                renderer.SuperSamplingUserWeight = trackBarUserWeight.Value / 100.0;
-            }
-            else
-            {
-                renderer.SuperSamplingUserWeight = 0.7; // 默认值
-            }
         }
 
         private string GetRenderTargetSize()

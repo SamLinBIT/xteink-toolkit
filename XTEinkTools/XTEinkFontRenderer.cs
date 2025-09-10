@@ -48,13 +48,6 @@ namespace XTEinkTools
         /// </summary>
         public SuperSamplingMode SuperSampling { get; set; } = SuperSamplingMode.None;
 
-        /// <summary>
-        /// SuperSampling模式下用户阈值的权重，范围0.0-1.0
-        /// 值越高越接近用户设置，值越低越依赖自动算法
-        /// 默认0.7，表示用户阈值占70%权重
-        /// </summary>
-        public double SuperSamplingUserWeight { get; set; } = 0.7;
-
         private Bitmap _tempRenderSurface;
         private Graphics _tempGraphics;
 
@@ -301,26 +294,26 @@ namespace XTEinkTools
             // 绘制字符
             this._tempGraphics.DrawString(chr.ToString(), renderFont, Brushes.White, 0, 0, _format);
 
-            // 应用SuperSampling处理
-            if (SuperSampling != SuperSamplingMode.None && IsSupersamplingWorthwhile(renderer.Width, renderer.Height))
+            // SuperSampling处理流程
+            if (SuperSampling != SuperSamplingMode.None)
             {
                 using (Bitmap scaledBitmap = ApplySuperSampling(_tempRenderSurface, renderer.Width, renderer.Height))
                 {
-                    // SuperSampling模式使用优化的阈值策略，保留更多灰度细节
+                    // SuperSampling模式下，对特殊字符进行算法优化
                     int optimizedThreshold = CalculateOptimizedThreshold(scaledBitmap, this.LightThrehold, charCodePoint);
                     renderer.LoadFromBitmap(charCodePoint, scaledBitmap, 0, 0, optimizedThreshold);
                 }
             }
             else
             {
-                // 无SuperSampling或字符过小，使用原有逻辑
+                // 无SuperSampling，直接使用用户阈值
                 renderer.LoadFromBitmap(charCodePoint, _tempRenderSurface, 0, 0, this.LightThrehold);
             }
         }
 
         /// <summary>
         /// 为SuperSampling模式计算优化的二值化阈值
-        /// 分析图像特征，保留更多抗锯齿细节，对标点符号特殊处理
+        /// 对标点符号和复杂字符进行专门优化，但不依赖用户权重
         /// </summary>
         /// <param name="bitmap">SuperSampling处理后的位图</param>
         /// <param name="userThreshold">用户设置的原始阈值</param>
@@ -330,14 +323,14 @@ namespace XTEinkTools
         {
             try
             {
-                // 检查是否为标点符号
+                // 检查字符类型
                 bool isPunctuation = IsPunctuationCharacter(charCodePoint);
+                bool isComplexCharacter = IsComplexCharacter(charCodePoint);
 
                 // 分析图像像素分布
                 var histogram = new int[256];
                 int totalPixels = bitmap.Width * bitmap.Height;
                 int nonBlackPixels = 0;
-                int uniqueGrayLevels = 0;
 
                 // 统计灰度分布 - 使用快速像素访问
                 var bitmapData = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height),
@@ -348,18 +341,22 @@ namespace XTEinkTools
                     unsafe
                     {
                         byte* ptr = (byte*)bitmapData.Scan0;
-                        int bytes = Math.Abs(bitmapData.Stride) * bitmap.Height;
+                        int stride = bitmapData.Stride;
 
-                        for (int i = 0; i < bytes; i += 3)
+                        for (int y = 0; y < bitmap.Height; y++)
                         {
-                            // BGR格式
-                            int b = ptr[i];
-                            int g = ptr[i + 1];
-                            int r = ptr[i + 2];
+                            byte* row = ptr + (y * stride);
+                            for (int x = 0; x < bitmap.Width; x++)
+                            {
+                                // BGR格式
+                                int b = row[x * 3];
+                                int g = row[x * 3 + 1];
+                                int r = row[x * 3 + 2];
 
-                            int gray = (int)(r * 0.299 + g * 0.587 + b * 0.114);
-                            histogram[gray]++;
-                            if (gray > 0) nonBlackPixels++;
+                                int gray = (int)(r * 0.299 + g * 0.587 + b * 0.114);
+                                histogram[gray]++;
+                                if (gray > 0) nonBlackPixels++;
+                            }
                         }
                     }
                 }
@@ -368,57 +365,37 @@ namespace XTEinkTools
                     bitmap.UnlockBits(bitmapData);
                 }
 
-                // 计算实际的灰度级别数量
-                for (int i = 0; i < 256; i++)
-                {
-                    if (histogram[i] > 0) uniqueGrayLevels++;
-                }
-
-                // 如果图像主要是黑色（背景），或者只有很少的灰度级别（可能是1bit模式），使用用户阈值
-                if (nonBlackPixels < totalPixels * 0.1 || uniqueGrayLevels < 8)
+                // 如果图像主要是黑色（背景），直接使用用户阈值
+                if (nonBlackPixels < totalPixels * 0.05)
                 {
                     return userThreshold;
                 }
 
-                // 标点符号使用保守的阈值策略，避免模糊
+                // 标点符号特殊处理：保持锐利清晰
                 if (isPunctuation)
                 {
-                    // 对标点符号，主要使用用户阈值，稍微调整以保持清晰
                     int scale = (int)SuperSampling;
-                    // 标点符号倾向于使用更高的阈值来保持锐利
-                    int conservativeThreshold = userThreshold + (scale - 1) * 5;
-                    return Math.Min(220, Math.Max(userThreshold, conservativeThreshold));
+                    // 标点符号使用稍微偏高的阈值，确保清晰锐利
+                    int punctuationThreshold = userThreshold + (scale - 1) * 8;
+                    return Math.Min(220, Math.Max(userThreshold, punctuationThreshold));
                 }
 
-                // 检测字符复杂度（针对复杂汉字如"剪"字的细节丢失问题）
-                bool isComplexCharacter = IsComplexCharacter(charCodePoint, histogram, totalPixels);
-
-                // 对普通文字字符使用改进的Otsu算法
-                int otsuThreshold = CalculateOtsuThreshold(histogram, totalPixels);
-
-                // 复杂字符优先使用用户阈值，保留细节
-                double userWeight = SuperSamplingUserWeight;
+                // 复杂字符特殊处理：保留更多细节
                 if (isComplexCharacter)
                 {
-                    // 复杂字符（如剪、繁体字）提高用户权重到85%，减少自动算法干预
-                    userWeight = Math.Max(userWeight, 0.85);
+                    // 对复杂字符使用Otsu算法，但偏向保留细节
+                    int otsuThreshold = CalculateOtsuThreshold(histogram, totalPixels);
+                    int scale = (int)SuperSampling;
+
+                    // 复杂字符倾向于使用稍低的阈值来保留细节
+                    int complexThreshold = (int)(otsuThreshold * 0.85 + userThreshold * 0.15);
+                    complexThreshold -= (scale - 1) * 3; // SuperSampling级别越高，阈值稍微降低
+
+                    return Math.Max(32, Math.Min(200, complexThreshold));
                 }
 
-                // 根据SuperSampling级别调整策略，但对复杂字符更保守
-                int scale2 = (int)SuperSampling;
-                double adjustmentFactor = isComplexCharacter
-                    ? 1.0 - (scale2 - 1) * 0.05  // 复杂字符：减少阈值降低幅度
-                    : 1.0 - (scale2 - 1) * 0.1;  // 普通字符：原有逻辑
-
-                // 使用用户可配置的权重混合阈值
-                double otsuWeight = 1.0 - userWeight;
-                int optimizedThreshold = (int)(otsuThreshold * adjustmentFactor * otsuWeight + userThreshold * userWeight);
-
-                // 扩大阈值范围，给复杂字符更多空间
-                int minThreshold = isComplexCharacter ? Math.Max(userThreshold - 20, 16) : 32;
-                int maxThreshold = isComplexCharacter ? 240 : 192;
-
-                return Math.Max(minThreshold, Math.Min(maxThreshold, optimizedThreshold));
+                // 普通字符：直接使用用户阈值
+                return userThreshold;
             }
             catch
             {
@@ -435,7 +412,7 @@ namespace XTEinkTools
         private bool IsPunctuationCharacter(int charCodePoint)
         {
             // ASCII标点符号
-            if ((charCodePoint >= 0x0020 && charCodePoint <= 0x002F) ||  // 空格和基本标点
+            if ((charCodePoint >= 0x0021 && charCodePoint <= 0x002F) ||  // !"#$%&'()*+,-./
                 (charCodePoint >= 0x003A && charCodePoint <= 0x0040) ||  // :;<=>?@
                 (charCodePoint >= 0x005B && charCodePoint <= 0x0060) ||  // [\]^_`
                 (charCodePoint >= 0x007B && charCodePoint <= 0x007E))    // {|}~
@@ -454,13 +431,59 @@ namespace XTEinkTools
             // 使用.NET内置的标点判断作为补充
             try
             {
-                char ch = (char)charCodePoint;
-                return char.IsPunctuation(ch) || char.IsSymbol(ch);
+                if (charCodePoint <= 0xFFFF)
+                {
+                    char ch = (char)charCodePoint;
+                    return char.IsPunctuation(ch) || char.IsSymbol(ch);
+                }
             }
-            catch
+            catch { }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 判断字符是否为复杂字符（基于Unicode范围和已知复杂字符）
+        /// </summary>
+        /// <param name="charCodePoint">字符的Unicode码点</param>
+        /// <returns>是否为复杂字符</returns>
+        private bool IsComplexCharacter(int charCodePoint)
+        {
+            // 一些已知的特别复杂的汉字
+            int[] complexChars = {
+                0x526A, // 剪
+                0x9F52, // 齒
+                0x9F61, // 齡
+                0x8B9E, // 謞
+                0x8B93, // 讓
+                0x9EBC, // 麼
+                0x7E41, // 繁
+                0x9F77, // 靷
+                0x9F72, // 靲
+                0x9F78, // 靸
+                0x8056, // 聖
+                0x9F6C, // 齬
+                0x9F50, // 齐
+                0x8B4F  // 譏
+            };
+
+            // 检查是否为已知复杂字符
+            for (int i = 0; i < complexChars.Length; i++)
             {
-                return false;
+                if (charCodePoint == complexChars[i])
+                    return true;
             }
+
+            // 一些复杂字符的Unicode范围
+            // CJK统一汉字扩展A区 (U+3400-U+4DBF) - 通常比较复杂
+            if (charCodePoint >= 0x3400 && charCodePoint <= 0x4DBF)
+                return true;
+
+            // CJK兼容汉字 (U+F900-U+FAFF) - 通常是复杂的异体字
+            if (charCodePoint >= 0xF900 && charCodePoint <= 0xFAFF)
+                return true;
+
+            return false;
         }
 
         /// <summary>
@@ -501,129 +524,6 @@ namespace XTEinkTools
             }
 
             return threshold;
-        }
-
-        /// <summary>
-        /// 判断字符是否为复杂字符（如"剪"字）
-        /// 复杂字符需要更保守的阈值处理以保留细节
-        /// </summary>
-        /// <param name="charCodePoint">字符的Unicode码点</param>
-        /// <param name="histogram">字符图像的灰度直方图</param>
-        /// <param name="totalPixels">总像素数</param>
-        /// <returns>是否为复杂字符</returns>
-        private bool IsComplexCharacter(int charCodePoint, int[] histogram, int totalPixels)
-        {
-            try
-            {
-                // 1. 基于Unicode范围的预判断
-                if (IsKnownComplexCharacter(charCodePoint))
-                {
-                    return true;
-                }
-
-                // 2. 分析灰度分布复杂度
-                int nonZeroLevels = 0;
-                int midGrayPixels = 0; // 中间灰度像素数（64-192范围）
-
-                for (int i = 0; i < 256; i++)
-                {
-                    if (histogram[i] > 0)
-                    {
-                        nonZeroLevels++;
-                        if (i >= 64 && i <= 192)
-                        {
-                            midGrayPixels += histogram[i];
-                        }
-                    }
-                }
-
-                // 3. 复杂度判断条件
-                // 条件1：灰度级别多（表示细节丰富）
-                bool hasRichGrayLevels = nonZeroLevels > 12;
-
-                // 条件2：中间灰度比例高（表示抗锯齿边缘多，笔画复杂）
-                double midGrayRatio = (double)midGrayPixels / totalPixels;
-                bool hasComplexEdges = midGrayRatio > 0.15;
-
-                // 条件3：非零像素密度适中（太少是简单符号，太多是粗体，适中是复杂结构）
-                int nonBlackPixels = totalPixels - histogram[0];
-                double pixelDensity = (double)nonBlackPixels / totalPixels;
-                bool hasModerateDensity = pixelDensity > 0.1 && pixelDensity < 0.6;
-
-                // 满足2个或以上条件认为是复杂字符
-                int complexityScore = (hasRichGrayLevels ? 1 : 0) +
-                                    (hasComplexEdges ? 1 : 0) +
-                                    (hasModerateDensity ? 1 : 0);
-
-                return complexityScore >= 2;
-            }
-            catch
-            {
-                return false; // 分析失败时保守处理
-            }
-        }
-
-        /// <summary>
-        /// 判断是否为已知的复杂字符
-        /// </summary>
-        /// <param name="charCodePoint">字符码点</param>
-        /// <returns>是否为已知复杂字符</returns>
-        private bool IsKnownComplexCharacter(int charCodePoint)
-        {
-            // 一些已知的特别复杂的汉字
-            var complexChars = new int[] {
-                0x526A, // 剪
-                0x9F52, // 齒
-                0x9F61, // 齡
-                0x8B9E, // 謞
-                0x8B93, // 讓
-                0x9EBC, // 麼
-                0x9F52, // 齒
-                0x7E41, // 繁
-                0x9F77, // 靷
-                0x9F72, // 靲
-                0x9F78, // 靸
-                0x8056  // 聖
-            };
-
-            // 检查是否为已知复杂字符
-            for (int i = 0; i < complexChars.Length; i++)
-            {
-                if (charCodePoint == complexChars[i])
-                    return true;
-            }
-
-            // 一些复杂字符的Unicode范围
-            // CJK统一汉字扩展A区 (U+3400-U+4DBF) - 通常比较复杂
-            if (charCodePoint >= 0x3400 && charCodePoint <= 0x4DBF)
-                return true;
-
-            // CJK兼容汉字 (U+F900-U+FAFF) - 通常是复杂的异体字
-            if (charCodePoint >= 0xF900 && charCodePoint <= 0xFAFF)
-                return true;
-
-            return false;
-        }
-
-        /// <summary>
-        /// 判断字符是否值得进行SuperSampling处理
-        /// 对于过小的字符，SuperSampling效果有限且浪费性能
-        /// </summary>
-        /// <param name="width">字符宽度</param>
-        /// <param name="height">字符高度</param>
-        /// <returns>是否值得SuperSampling</returns>
-        private bool IsSupersamplingWorthwhile(int width, int height)
-        {
-            // 字符面积过小时SuperSampling效果有限
-            int area = width * height;
-            if (area < 64) // 小于8x8像素的字符
-                return false;
-
-            // 单边过小的字符也跳过（如细线条）
-            if (width < 6 || height < 6)
-                return false;
-
-            return true;
         }
 
         void IDisposable.Dispose()
