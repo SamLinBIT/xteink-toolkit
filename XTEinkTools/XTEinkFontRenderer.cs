@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -164,11 +164,12 @@ namespace XTEinkTools
                              superPixelSize, PointF.Empty, StringFormat.GenericTypographic);
 
                 using Matrix m = new();
-                // 亚像素偏移
-                float subOffset = -0.125f * ULTRA_SCALE;
-                m.Translate(subOffset, subOffset);
-                m.Scale(1f / ULTRA_SCALE, 1f / ULTRA_SCALE, MatrixOrder.Append);
+                // 先应用字体变换（垂直、间距等）
                 ApplyUltraVectorTransforms(m, targetWidth, targetHeight, ULTRA_SCALE, charCodePoint);
+
+                // 亚像素偏移（在应用变换后进行，避免偏移过大）
+                float subOffset = -0.125f;
+                m.Translate(subOffset, subOffset, MatrixOrder.Append);
 
                 if (ShouldApplyInkCompensation(charCodePoint))
                     ApplyInkExpansionCompensation(gp, 0.05f * ULTRA_SCALE); // 0.05 mm
@@ -220,11 +221,11 @@ namespace XTEinkTools
                             uint* srcRow = srcPtr + (y * ULTRA_SCALE + dy) * srcStride;
                             for (int dx = 0; dx < ULTRA_SCALE; dx++)
                             {
-                                uint c = srcRow[x * ULTRA_SCALE + dx];
-                                int r = (int)(c & 0xFF);
-                                int g = (int)((c >> 8) & 0xFF);
-                                int b = (int)((c >> 16) & 0xFF);
-                                int gray = (r * 299 + g * 587 + b * 114 + 500) / 1000;
+                            uint c = srcRow[x * ULTRA_SCALE + dx];
+                            int b = (int)(c & 0xFF);        // Blue
+                            int g = (int)((c >> 8) & 0xFF); // Green
+                            int r = (int)((c >> 16) & 0xFF); // Red
+                            int gray = (r * 299 + g * 587 + b * 114 + 500) / 1000;
                                 gammaSum += Math.Pow(gray / 255.0, 2.2);
                                 cnt++;
                             }
@@ -274,7 +275,7 @@ namespace XTEinkTools
                                 for (int dx = -1; dx <= 1; dx++)
                                 {
                                     uint c = p[(y + dy) * stride + (x + dx)];
-                                    int r = (int)(c & 0xFF), g_ = (int)((c >> 8) & 0xFF), b = (int)((c >> 16) & 0xFF);
+                                    int b = (int)(c & 0xFF), g_ = (int)((c >> 8) & 0xFF), r = (int)((c >> 16) & 0xFF);
                                     g[(dy + 1) * 3 + (dx + 1)] = (byte)((r * 299 + g_ * 587 + b * 114 + 500) / 1000);
                                 }
                             int gh = Math.Abs(g[3 + 0] - g[3 + 2]), gv = Math.Abs(g[0 + 1] - g[2 + 1]);
@@ -309,26 +310,26 @@ namespace XTEinkTools
         {
             char chr = (char)charCodePoint;
             if (chr > 255 && char.IsControl(chr)) return;
-            // 垂直/行距/字距 同旧逻辑
+            // 垂直/行距/字距 同旧逻辑，但需要按scale缩放
             if (IsVerticalFont)
             {
-                m.Translate(0, targetH);
+                m.Translate(0, targetH * scale);
                 m.Rotate(-90);
             }
             bool center = true; // 简写
             if (center)
             {
                 if (IsVerticalFont)
-                    m.Translate(LineSpacingPx / 2f, 0);
+                    m.Translate(LineSpacingPx * scale / 2f, 0);
                 else
-                    m.Translate(0, LineSpacingPx / 2f);
+                    m.Translate(0, LineSpacingPx * scale / 2f);
             }
             if (CharSpacingPx != 0 && chr > (char)255)
             {
                 if (IsVerticalFont)
-                    m.Translate(0, CharSpacingPx / 2f);
+                    m.Translate(0, CharSpacingPx * scale / 2f);
                 else
-                    m.Translate(CharSpacingPx / 2f, 0);
+                    m.Translate(CharSpacingPx * scale / 2f, 0);
             }
         }
 
