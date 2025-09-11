@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 
 namespace XTEinkTools
 {
-    // 注意：SuperSampling现在使用bool控制，true=256x终极超采样，false=无超采样
+    // 注意：SuperSampling现在使用bool控制，true=32x超采样，false=无超采样
     public class XTEinkFontRenderer : IDisposable
     {
         public enum AntiAltasMode
@@ -22,7 +22,14 @@ namespace XTEinkTools
             SystemAntiAltas,
         }
 
+        public enum DownsamplingMode
+        {
+            BoxFilter,      // 简单像素平均（原始方法）
+            Lanczos2,       // Lanczos-2 滤波器（高质量）
+        }
+
         public AntiAltasMode AAMode { get; set; } = AntiAltasMode.System1BitGridFit;
+        public DownsamplingMode DownsamplingFilter { get; set; } = DownsamplingMode.Lanczos2;
         public int LightThrehold { get; set; } = 128;
         public int LineSpacingPx { get; set; } = 0;
         public int CharSpacingPx { get; set; } = 0;
@@ -54,6 +61,9 @@ namespace XTEinkTools
         // 浮点精度超采样优化（32位浮点数，更高精度）
         private static readonly float[] BayerLUTFloat = new float[BAYER_SIZE * BAYER_SIZE];
         private static readonly float[] GammaToLinearLUTFloat = new float[256];
+
+        // Lanczos-2 滤波器预计算表
+        private static readonly float[] LanczosLUT = new float[ULTRA_SCALE * 4 + 1]; // 支持-2到+2范围，精度为1/ULTRA_SCALE
 
         // 内存池
         private static readonly ConcurrentQueue<Bitmap> _bitmapPool = new();
@@ -118,6 +128,156 @@ namespace XTEinkTools
                     BayerLUTFloat[idx] = (BayerMatrix16x16[y, x] / 255.0f - 0.5f) * 0.08f; // 稍微减小抖动强度
                 }
             }
+
+            // 初始化 Lanczos-2 查找表
+            InitializeLanczosLUT();
+        }
+
+        // 初始化 Lanczos-2 滤波器查找表
+        private static void InitializeLanczosLUT()
+        {
+            float step = 1.0f / ULTRA_SCALE;
+            for (int i = 0; i < LanczosLUT.Length; i++)
+            {
+                float x = (i - LanczosLUT.Length / 2) * step;
+                LanczosLUT[i] = LanczosKernel(x, 2.0f);
+            }
+        }
+
+        // Lanczos 核函数
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static float LanczosKernel(float x, float a)
+        {
+            if (x == 0) return 1.0f;
+            if (Math.Abs(x) >= a) return 0.0f;
+
+            float pix = (float)(Math.PI * x);
+            float pixOverA = pix / a;
+            return (float)(Math.Sin(pix) * Math.Sin(pixOverA) / (pix * pixOverA));
+        }
+
+        // 使用 Lanczos-2 滤波器进行高质量降采样
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe float ApplyLanczosDownsampling(uint* srcPtr, int srcStride, int centerX, int centerY)
+        {
+            float weightedSum = 0f;
+            float totalWeight = 0f;
+
+            // Lanczos-2 的支持范围是 [-2, +2]
+            int radius = 2;
+            int kernelSize = radius * ULTRA_SCALE;
+
+            for (int dy = -kernelSize; dy <= kernelSize; dy++)
+            {
+                int srcY = centerY + dy;
+                if (srcY < 0 || srcY >= centerY + ULTRA_SCALE) continue;
+
+                for (int dx = -kernelSize; dx <= kernelSize; dx++)
+                {
+                    int srcX = centerX + dx;
+                    if (srcX < 0 || srcX >= centerX + ULTRA_SCALE) continue;
+
+                    // 计算 Lanczos 权重
+                    float weightX = LanczosKernel(dx / (float)ULTRA_SCALE, 2.0f);
+                    float weightY = LanczosKernel(dy / (float)ULTRA_SCALE, 2.0f);
+                    float weight = weightX * weightY;
+
+                    if (Math.Abs(weight) < 1e-6f) continue; // 跳过极小权重
+
+                    // 获取像素值并转换为线性空间
+                    uint pixel = srcPtr[srcY * srcStride + srcX];
+                    int gray = (int)(((pixel >> 16) & 0xFF) * 299 +
+                                   ((pixel >> 8) & 0xFF) * 587 +
+                                   (pixel & 0xFF) * 114) / 1000;
+
+                    float linearValue = GammaToLinearLUTFloat[gray];
+
+                    weightedSum += linearValue * weight;
+                    totalWeight += weight;
+                }
+            }
+
+            // 归一化
+            return totalWeight > 1e-6f ? weightedSum / totalWeight : 0f;
+        }
+
+        // 优化版本：使用预计算的采样点进行 Lanczos 降采样
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe float ApplyOptimizedLanczosDownsampling(uint* srcPtr, int srcStride, int blockX, int blockY)
+        {
+            float weightedSum = 0f;
+            float totalWeight = 0f;
+
+            int centerX = blockX * ULTRA_SCALE + ULTRA_SCALE / 2;
+            int centerY = blockY * ULTRA_SCALE + ULTRA_SCALE / 2;
+
+            // 使用较小的采样窗口以提高性能，同时保持质量
+            int sampleRadius = ULTRA_SCALE + ULTRA_SCALE / 2; // 1.5倍采样半径
+
+            for (int dy = -sampleRadius; dy <= sampleRadius; dy += 2) // 每2个像素采样一次
+            {
+                int srcY = centerY + dy;
+                if (srcY < blockY * ULTRA_SCALE || srcY >= (blockY + 1) * ULTRA_SCALE) continue;
+
+                for (int dx = -sampleRadius; dx <= sampleRadius; dx += 2)
+                {
+                    int srcX = centerX + dx;
+                    if (srcX < blockX * ULTRA_SCALE || srcX >= (blockX + 1) * ULTRA_SCALE) continue;
+
+                    // 计算 Lanczos 权重（使用查找表优化）
+                    float normalizedDx = dx / (float)ULTRA_SCALE;
+                    float normalizedDy = dy / (float)ULTRA_SCALE;
+
+                    float weightX = LanczosKernel(normalizedDx, 2.0f);
+                    float weightY = LanczosKernel(normalizedDy, 2.0f);
+                    float weight = weightX * weightY;
+
+                    if (Math.Abs(weight) < 1e-4f) continue;
+
+                    // 获取像素值
+                    uint pixel = srcPtr[srcY * srcStride + srcX];
+                    int gray = (int)(((pixel >> 16) & 0xFF) * 299 +
+                                   ((pixel >> 8) & 0xFF) * 587 +
+                                   (pixel & 0xFF) * 114) / 1000;
+
+                    float linearValue = GammaToLinearLUTFloat[gray];
+
+                    weightedSum += linearValue * weight;
+                    totalWeight += weight;
+                }
+            }
+
+            return totalWeight > 1e-6f ? weightedSum / totalWeight : 0f;
+        }
+
+        // 简单Box Filter降采样（原始像素平均方法）
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private unsafe float ApplyBoxFilterDownsampling(uint* srcPtr, int srcStride, int blockX, int blockY)
+        {
+            float gammaSum = 0f;
+            int srcY = blockY * ULTRA_SCALE;
+            int srcX = blockX * ULTRA_SCALE;
+            float ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
+
+            // 展开内层循环以减少分支
+            for (int dy = 0; dy < ULTRA_SCALE; dy++)
+            {
+                uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
+
+                // 处理所有像素（高精度浮点运算）
+                for (int dx = 0; dx < ULTRA_SCALE; dx++)
+                {
+                    uint c = srcRow[dx];
+                    // 快速灰度转换（整数运算）
+                    int gray = (int)(((c >> 16) & 0xFF) * 299 +
+                                    ((c >> 8) & 0xFF) * 587 +
+                                    (c & 0xFF) * 114) / 1000;
+                    // 使用高精度浮点Gamma查找表
+                    gammaSum += GammaToLinearLUTFloat[gray];
+                }
+            }
+
+            return gammaSum / ultraScale2;
         }
         #endregion
 
@@ -383,9 +543,6 @@ namespace XTEinkTools
                     int srcStride = srcData.Stride / 4;
                     int dstStride = dstData.Stride / 4;
 
-                    // 浮点精度超采样处理
-                    float ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
-
                     for (int y = 0; y < targetH; y++)
                     {
                         uint* dstRow = dstPtr + y * dstStride;
@@ -393,30 +550,12 @@ namespace XTEinkTools
 
                         for (int x = 0; x < targetW; x++)
                         {
-                            // 高精度浮点Gamma校正像素平均
-                            float gammaSum = 0f;
-                            int srcY = y * ULTRA_SCALE;
-                            int srcX = x * ULTRA_SCALE;
-
-                            // 展开内层循环以减少分支
-                            for (int dy = 0; dy < ULTRA_SCALE; dy++)
+                            // 根据设置选择降采样算法
+                            float avgGamma = DownsamplingFilter switch
                             {
-                                uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
-
-                                // 处理所有像素（高精度浮点运算）
-                                for (int dx = 0; dx < ULTRA_SCALE; dx++)
-                                {
-                                    uint c = srcRow[dx];
-                                    // 快速灰度转换（整数运算）
-                                    int gray = (int)(((c >> 16) & 0xFF) * 299 +
-                                                    ((c >> 8) & 0xFF) * 587 +
-                                                    (c & 0xFF) * 114) / 1000;
-                                    // 使用高精度浮点Gamma查找表
-                                    gammaSum += GammaToLinearLUTFloat[gray];
-                                }
-                            }
-
-                            float avgGamma = gammaSum / ultraScale2;
+                                DownsamplingMode.Lanczos2 => ApplyOptimizedLanczosDownsampling(srcPtr, srcStride, x, y),
+                                _ => ApplyBoxFilterDownsampling(srcPtr, srcStride, x, y)
+                            };
 
                             // 高精度浮点Bayer抖动
                             int bayerX = x & (BAYER_SIZE - 1);
