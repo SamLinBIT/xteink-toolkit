@@ -52,6 +52,10 @@ namespace XTEinkTools
         private static readonly int[] GammaToLinearLUTInt = new int[256];
         private const int FIXED_POINT_SCALE = 10000; // 定点数缩放因子
 
+        // 浮点精度超采样优化（32位浮点数，更高精度）
+        private static readonly float[] BayerLUTFloat = new float[BAYER_SIZE * BAYER_SIZE];
+        private static readonly float[] GammaToLinearLUTFloat = new float[256];
+
         // 内存池
         private static readonly ConcurrentQueue<Bitmap> _bitmapPool = new();
         private static readonly object _poolLock = new object();
@@ -90,6 +94,8 @@ namespace XTEinkTools
                 GammaToLinearLUT[i] = (float)Math.Pow(i / 255.0, 2.2);
                 // 整数版本（16位定点数）
                 GammaToLinearLUTInt[i] = (int)(GammaToLinearLUT[i] * FIXED_POINT_SCALE);
+                // 高精度浮点版本（32位浮点数）
+                GammaToLinearLUTFloat[i] = (float)Math.Pow(i / 255.0, 2.2);
             }
 
             // 初始化反Gamma查找表（16位精度）
@@ -109,6 +115,8 @@ namespace XTEinkTools
                     BayerLUT[idx] = (BayerMatrix16x16[y, x] / 255.0f - 0.5f) * 0.1f;
                     // 整数版本（16位定点数）
                     BayerLUTInt[idx] = (int)(BayerLUT[idx] * FIXED_POINT_SCALE);
+                    // 高精度浮点版本（32位浮点数）
+                    BayerLUTFloat[idx] = (BayerMatrix16x16[y, x] / 255.0f - 0.5f) * 0.08f; // 稍微减小抖动强度
                 }
             }
         }
@@ -252,7 +260,7 @@ namespace XTEinkTools
                 g.DrawString(chr.ToString(), scaledFont, Brushes.White, 0, 0, ultraFormat);
             }
 
-            var result = ApplyBayerDithering(ultra, targetWidth, targetHeight, charCodePoint);
+            var result = ApplyFloatPrecisionBayerDithering(ultra, targetWidth, targetHeight, charCodePoint);
             ReturnPooledBitmap(ultra);
             return result;
         }
@@ -328,6 +336,88 @@ namespace XTEinkTools
                             int minThr = (int)(0.02f * FIXED_POINT_SCALE);
                             int maxThr = (int)(0.98f * FIXED_POINT_SCALE);
                             combined = Math.Max(minThr, Math.Min(maxThr, combined));
+
+                            dstRow[x] = avgGamma > combined ? 0xFFFFFFFF : 0xFF000000;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                grayBmp.UnlockBits(srcData);
+                result.UnlockBits(dstData);
+            }
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private Bitmap ApplyFloatPrecisionBayerDithering(Bitmap grayBmp, int targetW, int targetH, int charCodePoint)
+        {
+            Bitmap result = new(targetW, targetH);
+            result.SetResolution(96, 96);
+
+            var srcData = grayBmp.LockBits(new Rectangle(0, 0, grayBmp.Width, grayBmp.Height),
+                                          System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                                          System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var dstData = result.LockBits(new Rectangle(0, 0, targetW, targetH),
+                                          System.Drawing.Imaging.ImageLockMode.WriteOnly,
+                                          System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            try
+            {
+                unsafe
+                {
+                    uint* srcPtr = (uint*)srcData.Scan0;
+                    uint* dstPtr = (uint*)dstData.Scan0;
+                    int srcStride = srcData.Stride / 4;
+                    int dstStride = dstData.Stride / 4;
+
+                    // 浮点精度超采样处理
+                    float ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
+
+                    for (int y = 0; y < targetH; y++)
+                    {
+                        uint* dstRow = dstPtr + y * dstStride;
+                        int bayerY = y & (BAYER_SIZE - 1);
+
+                        for (int x = 0; x < targetW; x++)
+                        {
+                            // 高精度浮点Gamma校正像素平均
+                            float gammaSum = 0f;
+                            int srcY = y * ULTRA_SCALE;
+                            int srcX = x * ULTRA_SCALE;
+
+                            // 展开内层循环以减少分支
+                            for (int dy = 0; dy < ULTRA_SCALE; dy++)
+                            {
+                                uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
+
+                                // 处理所有像素（高精度浮点运算）
+                                for (int dx = 0; dx < ULTRA_SCALE; dx++)
+                                {
+                                    uint c = srcRow[dx];
+                                    // 快速灰度转换（整数运算）
+                                    int gray = (int)(((c >> 16) & 0xFF) * 299 +
+                                                    ((c >> 8) & 0xFF) * 587 +
+                                                    (c & 0xFF) * 114) / 1000;
+                                    // 使用高精度浮点Gamma查找表
+                                    gammaSum += GammaToLinearLUTFloat[gray];
+                                }
+                            }
+
+                            float avgGamma = gammaSum / ultraScale2;
+
+                            // 高精度浮点Bayer抖动
+                            int bayerX = x & (BAYER_SIZE - 1);
+                            int bayerIdx = bayerY * BAYER_SIZE + bayerX;
+                            float bayer = BayerLUTFloat[bayerIdx];
+
+                            // 超采样模式下让字体稍微浅一点（亮一点）
+                            int compensatedThreshold = Math.Min(255, LightThrehold + 15);
+                            float thrLinear = GammaToLinearLUTFloat[compensatedThreshold];
+                            float combined = thrLinear + bayer;
+
+                            // 边界检查（浮点数）
+                            combined = Math.Max(0.02f, Math.Min(0.98f, combined));
 
                             dstRow[x] = avgGamma > combined ? 0xFFFFFFFF : 0xFF000000;
                         }
