@@ -22,14 +22,8 @@ namespace XTEinkTools
             SystemAntiAltas,
         }
 
-        public enum DownsamplingMode
-        {
-            BoxFilter,      // 简单像素平均（原始方法）
-            Lanczos2,       // Lanczos-2 滤波器（高质量）
-        }
 
         public AntiAltasMode AAMode { get; set; } = AntiAltasMode.System1BitGridFit;
-        public DownsamplingMode DownsamplingFilter { get; set; } = DownsamplingMode.Lanczos2;
         public int LightThrehold { get; set; } = 128;
         public int LineSpacingPx { get; set; } = 0;
         public int CharSpacingPx { get; set; } = 0;
@@ -55,14 +49,6 @@ namespace XTEinkTools
         private const int BAYER_SIZE = 16;
 
         // 性能优化：预计算查找表
-        private static readonly float[] GammaToLinearLUT = new float[256];
-        private static readonly byte[] LinearToGammaLUT = new byte[65536]; // 16位精度
-        private static readonly float[] BayerLUT = new float[BAYER_SIZE * BAYER_SIZE];
-
-        // 整数Bayer抖动优化（16位定点数，精度0.0001）
-        private static readonly int[] BayerLUTInt = new int[BAYER_SIZE * BAYER_SIZE];
-        private static readonly int[] GammaToLinearLUTInt = new int[256];
-        private const int FIXED_POINT_SCALE = 10000; // 定点数缩放因子
 
         // 浮点精度超采样优化（32位浮点数，更高精度）
         private static readonly float[] BayerLUTFloat = new float[BAYER_SIZE * BAYER_SIZE];
@@ -103,34 +89,18 @@ namespace XTEinkTools
         // 静态构造函数：初始化查找表
         static XTEinkFontRenderer()
         {
-            // 初始化Gamma查找表（浮点版本）
+            // 初始化Gamma查找表（高精度浮点版本）
             for (int i = 0; i < 256; i++)
             {
-                GammaToLinearLUT[i] = (float)Math.Pow(i / 255.0, 2.2);
-                // 整数版本（16位定点数）
-                GammaToLinearLUTInt[i] = (int)(GammaToLinearLUT[i] * FIXED_POINT_SCALE);
-                // 高精度浮点版本（32位浮点数）
                 GammaToLinearLUTFloat[i] = (float)Math.Pow(i / 255.0, 2.2);
             }
 
-            // 初始化反Gamma查找表（16位精度）
-            for (int i = 0; i < 65536; i++)
-            {
-                double linear = i / 65535.0;
-                LinearToGammaLUT[i] = (byte)Math.Round(Math.Pow(linear, 1.0 / 2.2) * 255);
-            }
-
-            // 初始化Bayer查找表
+            // 初始化Bayer查找表（高精度浮点版本）
             for (int y = 0; y < BAYER_SIZE; y++)
             {
                 for (int x = 0; x < BAYER_SIZE; x++)
                 {
                     int idx = y * BAYER_SIZE + x;
-                    // 浮点版本
-                    BayerLUT[idx] = (BayerMatrix16x16[y, x] / 255.0f - 0.5f) * 0.1f;
-                    // 整数版本（16位定点数）
-                    BayerLUTInt[idx] = (int)(BayerLUT[idx] * FIXED_POINT_SCALE);
-                    // 高精度浮点版本（32位浮点数）
                     BayerLUTFloat[idx] = (BayerMatrix16x16[y, x] / 255.0f - 0.5f) * 0.08f; // 稍微减小抖动强度
                 }
             }
@@ -170,50 +140,6 @@ namespace XTEinkTools
             return result;
         }
 
-        // 使用 Lanczos-2 滤波器进行高质量降采样
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe float ApplyLanczosDownsampling(uint* srcPtr, int srcStride, int centerX, int centerY)
-        {
-            float weightedSum = 0f;
-            float totalWeight = 0f;
-
-            // Lanczos-2 的支持范围是 [-2, +2]
-            int radius = 2;
-            int kernelSize = radius * ULTRA_SCALE;
-
-            for (int dy = -kernelSize; dy <= kernelSize; dy++)
-            {
-                int srcY = centerY + dy;
-                if (srcY < 0 || srcY >= centerY + ULTRA_SCALE) continue;
-
-                for (int dx = -kernelSize; dx <= kernelSize; dx++)
-                {
-                    int srcX = centerX + dx;
-                    if (srcX < 0 || srcX >= centerX + ULTRA_SCALE) continue;
-
-                    // 计算 Lanczos 权重
-                    float weightX = LanczosKernel(dx / (float)ULTRA_SCALE, 2.0f);
-                    float weightY = LanczosKernel(dy / (float)ULTRA_SCALE, 2.0f);
-                    float weight = weightX * weightY;
-
-                    if (Math.Abs(weight) < 1e-6f) continue; // 跳过极小权重
-
-                    // 获取像素值并转换为线性空间
-                    uint pixel = srcPtr[srcY * srcStride + srcX];
-                    int gray = (int)(((pixel >> 16) & 0xFF) * 299 +
-                                   ((pixel >> 8) & 0xFF) * 587 +
-                                   (pixel & 0xFF) * 114) / 1000;
-
-                    float linearValue = GammaToLinearLUTFloat[gray];
-
-                    weightedSum += linearValue * weight;
-                    totalWeight += weight;
-                }
-            }
-
-            // 归一化
-            return totalWeight > 1e-6f ? weightedSum / totalWeight : 0f;
-        }
 
         // 优化版本：使用预计算的采样点进行 Lanczos 降采样
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -264,35 +190,6 @@ namespace XTEinkTools
             return totalWeight > 1e-6f ? weightedSum / totalWeight : 0f;
         }
 
-        // 简单Box Filter降采样（原始像素平均方法）
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private unsafe float ApplyBoxFilterDownsampling(uint* srcPtr, int srcStride, int blockX, int blockY)
-        {
-            float gammaSum = 0f;
-            int srcY = blockY * ULTRA_SCALE;
-            int srcX = blockX * ULTRA_SCALE;
-            float ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
-
-            // 展开内层循环以减少分支
-            for (int dy = 0; dy < ULTRA_SCALE; dy++)
-            {
-                uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
-
-                // 处理所有像素（高精度浮点运算）
-                for (int dx = 0; dx < ULTRA_SCALE; dx++)
-                {
-                    uint c = srcRow[dx];
-                    // 快速灰度转换（整数运算）
-                    int gray = (int)(((c >> 16) & 0xFF) * 299 +
-                                    ((c >> 8) & 0xFF) * 587 +
-                                    (c & 0xFF) * 114) / 1000;
-                    // 使用高精度浮点Gamma查找表
-                    gammaSum += GammaToLinearLUTFloat[gray];
-                }
-            }
-
-            return gammaSum / ultraScale2;
-        }
         #endregion
 
         #region public API
@@ -451,90 +348,6 @@ namespace XTEinkTools
             return result;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private Bitmap ApplyBayerDithering(Bitmap grayBmp, int targetW, int targetH, int charCodePoint)
-        {
-            Bitmap result = new(targetW, targetH);
-            result.SetResolution(96, 96);
-
-            // 使用查找表预计算阈值
-            float thrLinear = GammaToLinearLUT[LightThrehold];
-
-            var srcData = grayBmp.LockBits(new Rectangle(0, 0, grayBmp.Width, grayBmp.Height),
-                                          System.Drawing.Imaging.ImageLockMode.ReadOnly,
-                                          System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            var dstData = result.LockBits(new Rectangle(0, 0, targetW, targetH),
-                                          System.Drawing.Imaging.ImageLockMode.WriteOnly,
-                                          System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            try
-            {
-                unsafe
-                {
-                    uint* srcPtr = (uint*)srcData.Scan0;
-                    uint* dstPtr = (uint*)dstData.Scan0;
-                    int srcStride = srcData.Stride / 4;
-                    int dstStride = dstData.Stride / 4;
-
-                    // 优化的像素处理（使用查找表）
-                    int ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
-
-                    for (int y = 0; y < targetH; y++)
-                    {
-                        uint* dstRow = dstPtr + y * dstStride;
-                        int bayerY = y & (BAYER_SIZE - 1);
-
-                        for (int x = 0; x < targetW; x++)
-                        {
-                            // 整数Bayer抖动优化（完全避免浮点运算）
-                            int gammaSum = 0;
-                            int srcY = y * ULTRA_SCALE;
-                            int srcX = x * ULTRA_SCALE;
-
-                            // 展开内层循环以减少分支
-                            for (int dy = 0; dy < ULTRA_SCALE; dy++)
-                            {
-                                uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
-
-                                // 处理所有像素（整数运算）
-                                for (int dx = 0; dx < ULTRA_SCALE; dx++)
-                                {
-                                    uint c = srcRow[dx];
-                                    // 快速灰度转换（整数运算）
-                                    int gray = (int)(((c >> 16) & 0xFF) * 299 +
-                                                    ((c >> 8) & 0xFF) * 587 +
-                                                    (c & 0xFF) * 114) / 1000;
-                                    gammaSum += GammaToLinearLUTInt[gray];
-                                }
-                            }
-
-                            int avgGamma = gammaSum / ultraScale2;
-
-                            // 整数Bayer抖动（使用定点数运算）
-                            int bayerX = x & (BAYER_SIZE - 1);
-                            int bayerIdx = bayerY * BAYER_SIZE + bayerX;
-                            int bayer = BayerLUTInt[bayerIdx];
-                            // 超采样模式下让字体稍微浅一点（亮一点）
-                            int compensatedThreshold = Math.Min(255, LightThrehold + 15);
-                            int thrLinearInt = GammaToLinearLUTInt[compensatedThreshold];
-                            int combined = thrLinearInt + bayer;
-
-                            // 边界检查（定点数）
-                            int minThr = (int)(0.02f * FIXED_POINT_SCALE);
-                            int maxThr = (int)(0.98f * FIXED_POINT_SCALE);
-                            combined = Math.Max(minThr, Math.Min(maxThr, combined));
-
-                            dstRow[x] = avgGamma > combined ? 0xFFFFFFFF : 0xFF000000;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                grayBmp.UnlockBits(srcData);
-                result.UnlockBits(dstData);
-            }
-            return result;
-        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private Bitmap ApplyFloatPrecisionBayerDithering(Bitmap grayBmp, int targetW, int targetH, int charCodePoint)
@@ -564,12 +377,8 @@ namespace XTEinkTools
 
                         for (int x = 0; x < targetW; x++)
                         {
-                            // 根据设置选择降采样算法
-                            float avgGamma = DownsamplingFilter switch
-                            {
-                                DownsamplingMode.Lanczos2 => ApplyOptimizedLanczosDownsampling(srcPtr, srcStride, x, y),
-                                _ => ApplyBoxFilterDownsampling(srcPtr, srcStride, x, y)
-                            };
+                            // 使用Lanczos-2降采样算法
+                            float avgGamma = ApplyOptimizedLanczosDownsampling(srcPtr, srcStride, x, y);
 
                             // 高精度浮点Bayer抖动
                             int bayerX = x & (BAYER_SIZE - 1);
