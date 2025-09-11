@@ -319,7 +319,9 @@ namespace XTEinkTools
                             int bayerX = x & (BAYER_SIZE - 1);
                             int bayerIdx = bayerY * BAYER_SIZE + bayerX;
                             int bayer = BayerLUTInt[bayerIdx];
-                            int thrLinearInt = GammaToLinearLUTInt[LightThrehold];
+                            // 超采样模式下让字体稍微浅一点（亮一点）
+                            int compensatedThreshold = Math.Min(255, LightThrehold + 15);
+                            int thrLinearInt = GammaToLinearLUTInt[compensatedThreshold];
                             int combined = thrLinearInt + bayer;
 
                             // 边界检查（定点数）
