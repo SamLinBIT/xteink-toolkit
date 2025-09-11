@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
@@ -38,7 +38,6 @@ namespace XTEinkTools
         #region private fields
         private Bitmap _tempRenderSurface;
         private Graphics _tempGraphics;
-        private Font _cachedSuperSamplingFont;
         private readonly StringFormat _format = new(StringFormat.GenericTypographic);
         private const int ULTRA_SCALE = 32;
         private const int BAYER_SIZE = 16;
@@ -47,7 +46,6 @@ namespace XTEinkTools
         private static readonly float[] GammaToLinearLUT = new float[256];
         private static readonly byte[] LinearToGammaLUT = new byte[65536]; // 16位精度
         private static readonly float[] BayerLUT = new float[BAYER_SIZE * BAYER_SIZE];
-        private static readonly int[] GrayWeights = { 299, 587, 114 }; // RGB到灰度的权重
 
         // 整数Bayer抖动优化（16位定点数，精度0.0001）
         private static readonly int[] BayerLUTInt = new int[BAYER_SIZE * BAYER_SIZE];
@@ -159,7 +157,6 @@ namespace XTEinkTools
         {
             _tempGraphics?.Dispose();
             _tempRenderSurface?.Dispose();
-            _cachedSuperSamplingFont?.Dispose();
             _format?.Dispose();
         }
         #endregion
@@ -456,7 +453,6 @@ namespace XTEinkTools
 
             // 并行处理32×32块
             int blockSize = ULTRA_SCALE;
-            var tasks = new List<Task>();
 
             var data = ultraBmp.LockBits(new Rectangle(0, 0, ultraBmp.Width, ultraBmp.Height),
                                         System.Drawing.Imaging.ImageLockMode.ReadWrite,
@@ -721,120 +717,6 @@ namespace XTEinkTools
             public int Column;
         }
 
-        private void ApplyDirectionalSmoothing(Bitmap bmp)
-        {
-            var data = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
-                                    System.Drawing.Imaging.ImageLockMode.ReadWrite,
-                                    System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            try
-            {
-                unsafe
-                {
-                    uint* p = (uint*)data.Scan0;
-                    int stride = data.Stride / 4;
-                    byte* g = stackalloc byte[9];
-                    for (int y = 1; y < bmp.Height - 1; y++)
-                    {
-                        for (int x = 1; x < bmp.Width - 1; x++)
-                        {
-                            // 快速灰度+梯度
-                            for (int dy = -1; dy <= 1; dy++)
-                                for (int dx = -1; dx <= 1; dx++)
-                                {
-                                    uint c = p[(y + dy) * stride + (x + dx)];
-                                    int b = (int)(c & 0xFF), g_ = (int)((c >> 8) & 0xFF), r = (int)((c >> 16) & 0xFF);
-                                    g[(dy + 1) * 3 + (dx + 1)] = (byte)((r * 299 + g_ * 587 + b * 114 + 500) / 1000);
-                                }
-                            int gh = Math.Abs(g[3 + 0] - g[3 + 2]), gv = Math.Abs(g[0 + 1] - g[2 + 1]);
-                            if (gv > gh * 2 || gh > gv * 2) continue; // 横/竖线跳过
-                            // 3×3 高斯
-                            float sum = 0, k = 0.0625f;
-                            for (int dy = -1; dy <= 1; dy++)
-                                for (int dx = -1; dx <= 1; dx++)
-                                    sum += g[(dy + 1) * 3 + (dx + 1)] * (dy == 0 && dx == 0 ? 0.25f : k);
-                            byte v = (byte)Math.Min(255, Math.Max(0, sum));
-                            uint rgb = (uint)(v | (v << 8) | (v << 16) | 0xFF000000);
-                            p[y * stride + x] = rgb;
-                        }
-                    }
-                }
-            }
-            finally { bmp.UnlockBits(data); }
-        }
-
-        private static void ApplyInkExpansionCompensation(GraphicsPath path, float shrinkPx)
-        {
-            if (shrinkPx * 2 < 0.7f) return; // 太细不补偿
-            try
-            {
-                using Pen pen = new(Color.Black, -shrinkPx * 2f) { LineJoin = LineJoin.Round };
-                path.Widen(pen);
-            }
-            catch { /* 太细失败就原样 */ }
-        }
-
-        private void ApplyUltraVectorTransforms(Matrix m, int targetW, int targetH, int scale, int charCodePoint)
-        {
-            char chr = (char)charCodePoint;
-            if (chr > 255 && char.IsControl(chr)) return;
-
-            // 垂直字体变换（需要按scale缩放）
-            if (IsVerticalFont)
-            {
-                m.Translate(0, targetH * scale);
-                m.Rotate(-90);
-            }
-
-            // 行对齐逻辑必须与legacy路径一致！
-            // 注意：间距不需要按scale缩放，因为已经在矩阵缩放后应用
-            bool center = IsOldLineAlignment ? LineSpacingPx < 0 : true;
-            if (center)
-            {
-                if (IsVerticalFont)
-                    m.Translate(LineSpacingPx / 2f, 0);
-                else
-                    m.Translate(0, LineSpacingPx / 2f);
-            }
-
-            // 字符间距（仅对非ASCII字符，不需要按scale缩放）
-            if (CharSpacingPx != 0 && chr > (char)255)
-            {
-                if (IsVerticalFont)
-                    m.Translate(0, CharSpacingPx / 2f);
-                else
-                    m.Translate(CharSpacingPx / 2f, 0);
-            }
-        }
-
-        private bool ShouldApplyInkCompensation(int charCodePoint)
-        {
-            if (charCodePoint <= 127)
-            {
-                char ch = (char)charCodePoint;
-                if ("1iIl|!.,:;".Contains(ch)) return false;
-            }
-            return !IsPunctuationCharacter(charCodePoint);
-        }
-
-        private bool IsPunctuationCharacter(int charCodePoint)
-        {
-            if (charCodePoint is >= 0x21 and <= 0x2F or >= 0x3A and <= 0x40 or >= 0x5B and <= 0x60 or >= 0x7B and <= 0x7E) return true;
-            if (charCodePoint is >= 0x2000 and <= 0x206F or >= 0x3000 and <= 0x303F or >= 0xFF00 and <= 0xFFEF) return true;
-            if (charCodePoint <= 0xFFFF) return char.IsPunctuation((char)charCodePoint) || char.IsSymbol((char)charCodePoint);
-            return false;
-        }
-
-        private static bool NeedsSmoothCurveProcessing(int charCodePoint)
-        {
-            if (charCodePoint <= 127)
-            {
-                char ch = (char)charCodePoint;
-                if ("036689BCDGJOPQRSabcdegopqsuy()[]{}@&".Contains(ch)) return true;
-                return false;
-            }
-            // 已知弯钩/撇捺/圆弧字符表略，同旧逻辑
-            return false; // 保守返回
-        }
 
         #region memory pool
         private static Bitmap GetPooledBitmap(int width, int height)
