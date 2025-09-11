@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -193,8 +193,8 @@ namespace XTEinkTools
             result.SetResolution(96, 96);
 
             bool isPunct = IsPunctuationCharacter(charCodePoint);
-            // 超采样阈值优化：普通字符大幅降低，标点符号轻微降低
-            int adjThr = isPunct ? Math.Max(16, LightThrehold - 4) : Math.Max(24, LightThrehold / 3);
+            // 超采样阈值优化：在可见性和清晰度之间找平衡
+            int adjThr = isPunct ? Math.Max(16, LightThrehold - 4) : Math.Max(40, LightThrehold * 2 / 3);
             double thrLinear = Math.Pow(adjThr / 255.0, 2.2);
 
             var srcData = grayBmp.LockBits(new Rectangle(0, 0, grayBmp.Width, grayBmp.Height),
@@ -240,12 +240,22 @@ namespace XTEinkTools
                         // 纯黑保护区（提高阈值，减少虚化）
                         if (avgGray < 32) { dstRow[x] = 0xFF000000; continue; }
 
+                        // 对比度增强：使用S曲线增强对比度
+                        double contrast = avgGamma;
+                        if (contrast > 0.1 && contrast < 0.9)
+                        {
+                            // S曲线增强对比度
+                            contrast = contrast < 0.5 ?
+                                2 * contrast * contrast :
+                                1 - 2 * (1 - contrast) * (1 - contrast);
+                        }
+
                         // Bayer+clamp（减少抖动强度，提高清晰度）
                         int bx = x & (BAYER_SIZE - 1);
                         int by = y & (BAYER_SIZE - 1);
-                        double bayer = (BayerMatrix16x16[by, bx] / 255.0 - 0.5) * 0.05; // 从0.1减少到0.05
+                        double bayer = (BayerMatrix16x16[by, bx] / 255.0 - 0.5) * 0.03; // 进一步减少到0.03
                         double combined = Math.Max(0.02, Math.Min(0.98, thrLinear + bayer));
-                        dstRow[x] = avgGamma > combined ? 0xFFFFFFFF : 0xFF000000;
+                        dstRow[x] = contrast > combined ? 0xFFFFFFFF : 0xFF000000;
                         }
                     }
                 }
