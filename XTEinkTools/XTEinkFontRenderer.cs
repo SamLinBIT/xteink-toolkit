@@ -152,7 +152,7 @@ namespace XTEinkTools
 
         // Lanczos 核函数（支持可配置参数）
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private float LanczosKernel(float x, float a, float sharpening = 1.0f)
+        private static float LanczosKernel(float x, float a, float sharpening = 1.0f)
         {
             if (x == 0) return 1.0f;
             if (Math.Abs(x) >= a) return 0.0f;
