@@ -1,11 +1,10 @@
-﻿using System;
+﻿﻿﻿﻿﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Linq;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -204,11 +203,12 @@ namespace XTEinkTools
                              emSizeInPixels, PointF.Empty, StringFormat.GenericTypographic);
 
                 using Matrix m = new();
-                // 关键修复：必须将路径按ULTRA_SCALE放大，以匹配超采样画布
-                m.Scale(ULTRA_SCALE, ULTRA_SCALE, MatrixOrder.Append);
 
-                // 先应用字体变换（垂直、间距等）
+                // 先应用字体变换（垂直、间距等），在缩放之前
                 ApplyUltraVectorTransforms(m, targetWidth, targetHeight, ULTRA_SCALE, charCodePoint);
+
+                // 最后应用32倍缩放，以匹配超采样画布
+                m.Scale(ULTRA_SCALE, ULTRA_SCALE, MatrixOrder.Append);
 
                 gp.Transform(m);
 
@@ -244,8 +244,7 @@ namespace XTEinkTools
                     int srcStride = srcData.Stride / 4;
                     int dstStride = dstData.Stride / 4;
 
-                    // SIMD优化的像素处理
-                    int vectorSize = Vector<float>.Count;
+                    // 优化的像素处理（使用查找表）
                     int ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
 
                     for (int y = 0; y < targetH; y++)
@@ -265,26 +264,11 @@ namespace XTEinkTools
                             {
                                 uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
 
-                                // SIMD处理多个像素
-                                int dx = 0;
-                                for (; dx <= ULTRA_SCALE - vectorSize; dx += vectorSize)
-                                {
-                                    // 加载8个像素并转换为灰度
-                                    for (int i = 0; i < vectorSize && dx + i < ULTRA_SCALE; i++)
-                                    {
-                                        uint c = srcRow[dx + i];
-                                        // 快速灰度转换（整数运算）
-                                        int gray = (int)(((c >> 16) & 0xFF) * 299 +
-                                                        ((c >> 8) & 0xFF) * 587 +
-                                                        (c & 0xFF) * 114) / 1000;
-                                        gammaSum += GammaToLinearLUT[gray];
-                                    }
-                                }
-
-                                // 处理剩余像素
-                                for (; dx < ULTRA_SCALE; dx++)
+                                // 处理所有像素
+                                for (int dx = 0; dx < ULTRA_SCALE; dx++)
                                 {
                                     uint c = srcRow[dx];
+                                    // 快速灰度转换（整数运算）
                                     int gray = (int)(((c >> 16) & 0xFF) * 299 +
                                                     ((c >> 8) & 0xFF) * 587 +
                                                     (c & 0xFF) * 114) / 1000;
@@ -378,22 +362,23 @@ namespace XTEinkTools
             }
 
             // 行对齐逻辑必须与legacy路径一致！
+            // 注意：间距不需要按scale缩放，因为已经在矩阵缩放后应用
             bool center = IsOldLineAlignment ? LineSpacingPx < 0 : true;
             if (center)
             {
                 if (IsVerticalFont)
-                    m.Translate(LineSpacingPx * scale / 2f, 0);
+                    m.Translate(LineSpacingPx / 2f, 0);
                 else
-                    m.Translate(0, LineSpacingPx * scale / 2f);
+                    m.Translate(0, LineSpacingPx / 2f);
             }
 
-            // 字符间距（仅对非ASCII字符，需要按scale缩放）
+            // 字符间距（仅对非ASCII字符，不需要按scale缩放）
             if (CharSpacingPx != 0 && chr > (char)255)
             {
                 if (IsVerticalFont)
-                    m.Translate(0, CharSpacingPx * scale / 2f);
+                    m.Translate(0, CharSpacingPx / 2f);
                 else
-                    m.Translate(CharSpacingPx * scale / 2f, 0);
+                    m.Translate(CharSpacingPx / 2f, 0);
             }
         }
 
