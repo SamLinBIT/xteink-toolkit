@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -157,10 +157,11 @@ namespace XTEinkTools
                     g.DrawRectangle(Pens.White, 0, 0, ultraW - 1, ultraH - 1);
 
                 using GraphicsPath gp = new();
-                float emSizeInPoints = Font.SizeInPoints;
+                // 使用像素大小而不是点大小，确保字体大小正确
+                float emSizeInPixels = Font.Size;
 
                 gp.AddString(chr.ToString(), Font.FontFamily, (int)Font.Style,
-                             emSizeInPoints, PointF.Empty, StringFormat.GenericTypographic);
+                             emSizeInPixels, PointF.Empty, StringFormat.GenericTypographic);
 
                 using Matrix m = new();
                 // 关键修复：必须将路径按ULTRA_SCALE放大，以匹配超采样画布
@@ -168,10 +169,6 @@ namespace XTEinkTools
 
                 // 先应用字体变换（垂直、间距等）
                 ApplyUltraVectorTransforms(m, targetWidth, targetHeight, ULTRA_SCALE, charCodePoint);
-
-                // 亚像素偏移（在应用变换后进行，避免偏移过大）
-                float subOffset = -0.125f;
-                m.Translate(subOffset, subOffset, MatrixOrder.Append);
 
                 gp.Transform(m);
 
