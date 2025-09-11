@@ -1,4 +1,4 @@
-﻿﻿﻿﻿using System;
+﻿﻿﻿﻿﻿﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -193,8 +193,8 @@ namespace XTEinkTools
             result.SetResolution(96, 96);
 
             bool isPunct = IsPunctuationCharacter(charCodePoint);
-            // 超采样阈值优化：普通字符轻微降低，标点符号保持原值
-            int adjThr = isPunct ? Math.Max(16, LightThrehold - 4) : Math.Max(LightThrehold - 16, LightThrehold * 85 / 100);
+            // 超采样阈值优化：普通字符大幅降低，标点符号轻微降低
+            int adjThr = isPunct ? Math.Max(16, LightThrehold - 4) : Math.Max(24, LightThrehold / 3);
             double thrLinear = Math.Pow(adjThr / 255.0, 2.2);
 
             var srcData = grayBmp.LockBits(new Rectangle(0, 0, grayBmp.Width, grayBmp.Height),
