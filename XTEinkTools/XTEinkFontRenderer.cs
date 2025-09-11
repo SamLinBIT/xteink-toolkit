@@ -215,7 +215,15 @@ namespace XTEinkTools
                 g.SmoothingMode = SmoothingMode.HighQuality;
                 g.CompositingQuality = CompositingQuality.HighQuality;
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                // 在超采样中也使用用户的AAMode设置
+                TextRenderingHint ultraHint = AAMode switch
+                {
+                    AntiAltasMode.System1BitGridFit => TextRenderingHint.SingleBitPerPixelGridFit,
+                    AntiAltasMode.System1Bit => TextRenderingHint.SingleBitPerPixel,
+                    AntiAltasMode.SystemAntiAltas => TextRenderingHint.AntiAlias,
+                    _ => TextRenderingHint.AntiAliasGridFit,
+                };
+                g.TextRenderingHint = ultraHint;
 
                 if (RenderBorder)
                     g.DrawRectangle(Pens.White, 0, 0, ultraW - 1, ultraH - 1);
