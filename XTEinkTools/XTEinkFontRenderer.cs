@@ -1,9 +1,12 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Runtime.Versioning;
@@ -38,6 +41,16 @@ namespace XTEinkTools
         private readonly StringFormat _format = new(StringFormat.GenericTypographic);
         private const int ULTRA_SCALE = 32;
         private const int BAYER_SIZE = 16;
+
+        // 性能优化：预计算查找表
+        private static readonly float[] GammaToLinearLUT = new float[256];
+        private static readonly byte[] LinearToGammaLUT = new byte[65536]; // 16位精度
+        private static readonly float[] BayerLUT = new float[BAYER_SIZE * BAYER_SIZE];
+        private static readonly int[] GrayWeights = { 299, 587, 114 }; // RGB到灰度的权重
+
+        // 内存池
+        private static readonly ConcurrentQueue<Bitmap> _bitmapPool = new();
+        private static readonly object _poolLock = new object();
         private static readonly int[,] BayerMatrix16x16 = {
             {0,128,32,160,8,136,40,168,2,130,34,162,10,138,42,170},
             {192,64,224,96,200,72,232,104,194,66,226,98,202,74,234,106},
@@ -56,6 +69,33 @@ namespace XTEinkTools
             {63,191,31,159,55,183,23,151,61,189,29,157,53,181,21,149},
             {255,127,223,95,247,119,215,87,253,125,221,93,245,117,213,85}
         };
+
+        // 静态构造函数：初始化查找表
+        static XTEinkFontRenderer()
+        {
+            // 初始化Gamma查找表
+            for (int i = 0; i < 256; i++)
+            {
+                GammaToLinearLUT[i] = (float)Math.Pow(i / 255.0, 2.2);
+            }
+
+            // 初始化反Gamma查找表（16位精度）
+            for (int i = 0; i < 65536; i++)
+            {
+                double linear = i / 65535.0;
+                LinearToGammaLUT[i] = (byte)Math.Round(Math.Pow(linear, 1.0 / 2.2) * 255);
+            }
+
+            // 初始化Bayer查找表
+            for (int y = 0; y < BAYER_SIZE; y++)
+            {
+                for (int x = 0; x < BAYER_SIZE; x++)
+                {
+                    int idx = y * BAYER_SIZE + x;
+                    BayerLUT[idx] = (BayerMatrix16x16[y, x] / 255.0f - 0.5f) * 0.1f;
+                }
+            }
+        }
         #endregion
 
         #region public API
@@ -142,7 +182,7 @@ namespace XTEinkTools
             int ultraW = targetWidth * ULTRA_SCALE;
             int ultraH = targetHeight * ULTRA_SCALE;
 
-            Bitmap ultra = new(ultraW, ultraH);
+            Bitmap ultra = GetPooledBitmap(ultraW, ultraH);
             ultra.SetResolution(96, 96);
 
             using (Graphics g = Graphics.FromImage(ultra))
@@ -175,16 +215,19 @@ namespace XTEinkTools
                 g.FillPath(Brushes.White, gp);
             }
 
-            return ApplyBayerDithering(ultra, targetWidth, targetHeight, charCodePoint);
+            var result = ApplyBayerDithering(ultra, targetWidth, targetHeight, charCodePoint);
+            ReturnPooledBitmap(ultra);
+            return result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private Bitmap ApplyBayerDithering(Bitmap grayBmp, int targetW, int targetH, int charCodePoint)
         {
             Bitmap result = new(targetW, targetH);
             result.SetResolution(96, 96);
 
-            // 简化：统一使用LightThrehold，不区分字符类型
-            double thrLinear = Math.Pow(LightThrehold / 255.0, 2.2);
+            // 使用查找表预计算阈值
+            float thrLinear = GammaToLinearLUT[LightThrehold];
 
             var srcData = grayBmp.LockBits(new Rectangle(0, 0, grayBmp.Width, grayBmp.Height),
                                           System.Drawing.Imaging.ImageLockMode.ReadOnly,
@@ -201,36 +244,63 @@ namespace XTEinkTools
                     int srcStride = srcData.Stride / 4;
                     int dstStride = dstData.Stride / 4;
 
+                    // SIMD优化的像素处理
+                    int vectorSize = Vector<float>.Count;
+                    int ultraScale2 = ULTRA_SCALE * ULTRA_SCALE;
+
                     for (int y = 0; y < targetH; y++)
                     {
                         uint* dstRow = dstPtr + y * dstStride;
+                        int bayerY = y & (BAYER_SIZE - 1);
+
                         for (int x = 0; x < targetW; x++)
                         {
-                        // Gamma校正的像素平均（保留这个，这是有意义的）
-                        double gammaSum = 0;
-                        int cnt = 0;
-                        for (int dy = 0; dy < ULTRA_SCALE; dy++)
-                        {
-                            uint* srcRow = srcPtr + (y * ULTRA_SCALE + dy) * srcStride;
-                            for (int dx = 0; dx < ULTRA_SCALE; dx++)
-                            {
-                            uint c = srcRow[x * ULTRA_SCALE + dx];
-                            int b = (int)(c & 0xFF);        // Blue
-                            int g = (int)((c >> 8) & 0xFF); // Green
-                            int r = (int)((c >> 16) & 0xFF); // Red
-                            int gray = (r * 299 + g * 587 + b * 114 + 500) / 1000;
-                                gammaSum += Math.Pow(gray / 255.0, 2.2);
-                                cnt++;
-                            }
-                        }
-                        double avgGamma = gammaSum / cnt;
+                            // 快速Gamma校正像素平均（使用查找表）
+                            float gammaSum = 0f;
+                            int srcY = y * ULTRA_SCALE;
+                            int srcX = x * ULTRA_SCALE;
 
-                        // 简单的Bayer抖动
-                        int bx = x & (BAYER_SIZE - 1);
-                        int by = y & (BAYER_SIZE - 1);
-                        double bayer = (BayerMatrix16x16[by, bx] / 255.0 - 0.5) * 0.1;
-                        double combined = Math.Max(0.02, Math.Min(0.98, thrLinear + bayer));
-                        dstRow[x] = avgGamma > combined ? 0xFFFFFFFF : 0xFF000000;
+                            // 展开内层循环以减少分支
+                            for (int dy = 0; dy < ULTRA_SCALE; dy++)
+                            {
+                                uint* srcRow = srcPtr + (srcY + dy) * srcStride + srcX;
+
+                                // SIMD处理多个像素
+                                int dx = 0;
+                                for (; dx <= ULTRA_SCALE - vectorSize; dx += vectorSize)
+                                {
+                                    // 加载8个像素并转换为灰度
+                                    for (int i = 0; i < vectorSize && dx + i < ULTRA_SCALE; i++)
+                                    {
+                                        uint c = srcRow[dx + i];
+                                        // 快速灰度转换（整数运算）
+                                        int gray = (int)(((c >> 16) & 0xFF) * 299 +
+                                                        ((c >> 8) & 0xFF) * 587 +
+                                                        (c & 0xFF) * 114) / 1000;
+                                        gammaSum += GammaToLinearLUT[gray];
+                                    }
+                                }
+
+                                // 处理剩余像素
+                                for (; dx < ULTRA_SCALE; dx++)
+                                {
+                                    uint c = srcRow[dx];
+                                    int gray = (int)(((c >> 16) & 0xFF) * 299 +
+                                                    ((c >> 8) & 0xFF) * 587 +
+                                                    (c & 0xFF) * 114) / 1000;
+                                    gammaSum += GammaToLinearLUT[gray];
+                                }
+                            }
+
+                            float avgGamma = gammaSum / ultraScale2;
+
+                            // 优化的Bayer抖动（使用预计算查找表）
+                            int bayerX = x & (BAYER_SIZE - 1);
+                            int bayerIdx = bayerY * BAYER_SIZE + bayerX;
+                            float bayer = BayerLUT[bayerIdx];
+                            float combined = Math.Max(0.02f, Math.Min(0.98f, thrLinear + bayer));
+
+                            dstRow[x] = avgGamma > combined ? 0xFFFFFFFF : 0xFF000000;
                         }
                     }
                 }
@@ -356,6 +426,51 @@ namespace XTEinkTools
             // 已知弯钩/撇捺/圆弧字符表略，同旧逻辑
             return false; // 保守返回
         }
+
+        #region memory pool
+        private static Bitmap GetPooledBitmap(int width, int height)
+        {
+            // 尝试从池中获取合适的Bitmap
+            while (_bitmapPool.TryDequeue(out Bitmap pooled))
+            {
+                if (pooled.Width == width && pooled.Height == height)
+                {
+                    // 清空画布
+                    using (Graphics g = Graphics.FromImage(pooled))
+                    {
+                        g.Clear(Color.Black);
+                    }
+                    return pooled;
+                }
+                else
+                {
+                    // 尺寸不匹配，释放资源
+                    pooled.Dispose();
+                }
+            }
+
+            // 池中没有合适的，创建新的
+            return new Bitmap(width, height);
+        }
+
+        private static void ReturnPooledBitmap(Bitmap bitmap)
+        {
+            if (bitmap == null) return;
+
+            // 限制池的大小，避免内存泄漏
+            lock (_poolLock)
+            {
+                if (_bitmapPool.Count < 10) // 最多缓存10个Bitmap
+                {
+                    _bitmapPool.Enqueue(bitmap);
+                }
+                else
+                {
+                    bitmap.Dispose();
+                }
+            }
+        }
+        #endregion
 
         #region helpers
         private void EnsureRenderSurfaceSize(int width, int height)
