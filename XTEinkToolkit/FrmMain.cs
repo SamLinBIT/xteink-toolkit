@@ -71,7 +71,11 @@ namespace XTEinkToolkit
             chkSuperSampling.Checked = false;
 
             // 设置工具提示
-            toolTip1.SetToolTip(chkSuperSampling, "启用32x超采样");
+            toolTip1.SetToolTip(chkSuperSampling, "启用8x超采样");
+
+            // 初始化Lanczos锐化强度控件
+            numLanczosSharpening.Value = 1.3m; // 默认值1.3
+            numLanczosSharpening.Enabled = chkSuperSampling.Checked; // 只有启用超采样时才可用
         }
 
 
@@ -148,6 +152,18 @@ namespace XTEinkToolkit
         private void chkRenderGridFit_CheckedChanged(object sender, EventArgs e)
         {
             numFontGamma.Enabled = chkRenderAntiAltas.Checked;
+
+            // 控制Lanczos锐化强度控件的启用状态
+            if (sender == chkSuperSampling)
+            {
+                numLanczosSharpening.Enabled = chkSuperSampling.Checked;
+            }
+
+            DoPreview();
+        }
+
+        private void numLanczosSharpening_ValueChanged(object sender, EventArgs e)
+        {
             DoPreview();
         }
 
@@ -234,6 +250,9 @@ namespace XTEinkToolkit
 
             // 配置SuperSampling模式：勾选=启用8x超采样，不勾选=无超采样
             renderer.EnableUltimateSuperSampling = chkSuperSampling.Checked;
+
+            // 配置Lanczos锐化强度
+            renderer.LanczosSharpening = (float)numLanczosSharpening.Value;
 
         }
 

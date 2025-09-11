@@ -840,6 +840,38 @@
   <data name="chkSuperSampling.Text" xml:space="preserve">
     <value>启用8x超采样</value>
   </data>
+  <data name="lblLanczosSharpening.AutoSize" type="System.Boolean, mscorlib">
+    <value>True</value>
+  </data>
+  <data name="lblLanczosSharpening.ImeMode" type="System.Windows.Forms.ImeMode, System.Windows.Forms">
+    <value>NoControl</value>
+  </data>
+  <data name="lblLanczosSharpening.Location" type="System.Drawing.Point, System.Drawing">
+    <value>6, 545</value>
+  </data>
+  <data name="lblLanczosSharpening.Size" type="System.Drawing.Size, System.Drawing">
+    <value>135, 20</value>
+  </data>
+  <data name="lblLanczosSharpening.TabIndex" type="System.Int32, mscorlib">
+    <value>20</value>
+  </data>
+  <data name="lblLanczosSharpening.Text" xml:space="preserve">
+    <value>超采样锐化强度：</value>
+  </data>
+  <data name="numLanczosSharpening.Location" type="System.Drawing.Point, System.Drawing">
+    <value>6, 570</value>
+  </data>
+  <data name="numLanczosSharpening.Size" type="System.Drawing.Size, System.Drawing">
+    <value>121, 26</value>
+  </data>
+  <data name="numLanczosSharpening.TabIndex" type="System.Int32, mscorlib">
+    <value>21</value>
+  </data>
+  <data name="numLanczosSharpening.ToolTip" xml:space="preserve">
+    <value>控制超采样时的锐化强度。
+值越大边缘越锐利，但可能产生振铃效应。
+范围：0.5-2.0，推荐值：1.3</value>
+  </data>
   <data name="&gt;&gt;chkSuperSampling.Name" xml:space="preserve">
     <value>chkSuperSampling</value>
   </data>
@@ -851,6 +883,30 @@
   </data>
   <data name="&gt;&gt;chkSuperSampling.ZOrder" xml:space="preserve">
     <value>0</value>
+  </data>
+  <data name="&gt;&gt;lblLanczosSharpening.Name" xml:space="preserve">
+    <value>lblLanczosSharpening</value>
+  </data>
+  <data name="&gt;&gt;lblLanczosSharpening.Type" xml:space="preserve">
+    <value>System.Windows.Forms.Label, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
+  <data name="&gt;&gt;lblLanczosSharpening.Parent" xml:space="preserve">
+    <value>groupBox2</value>
+  </data>
+  <data name="&gt;&gt;lblLanczosSharpening.ZOrder" xml:space="preserve">
+    <value>22</value>
+  </data>
+  <data name="&gt;&gt;numLanczosSharpening.Name" xml:space="preserve">
+    <value>numLanczosSharpening</value>
+  </data>
+  <data name="&gt;&gt;numLanczosSharpening.Type" xml:space="preserve">
+    <value>System.Windows.Forms.NumericUpDown, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
+  <data name="&gt;&gt;numLanczosSharpening.Parent" xml:space="preserve">
+    <value>groupBox2</value>
+  </data>
+  <data name="&gt;&gt;numLanczosSharpening.ZOrder" xml:space="preserve">
+    <value>23</value>
   </data>
   <data name="lblPreviewMessage.AutoSize" type="System.Boolean, mscorlib">
     <value>True</value>
