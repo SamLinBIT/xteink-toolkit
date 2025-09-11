@@ -193,12 +193,13 @@ namespace XTEinkTools
             result.SetResolution(96, 96);
 
             bool isPunct = IsPunctuationCharacter(charCodePoint);
-            int adjThr = isPunct ? Math.Max(16, LightThrehold - 4) : LightThrehold;
+            // 对普通字符大幅降低阈值，提高渲染成功率
+            int adjThr = isPunct ? Math.Max(16, LightThrehold - 4) : Math.Max(32, LightThrehold - 64);
             double thrLinear = Math.Pow(adjThr / 255.0, 2.2);
 
             var srcData = grayBmp.LockBits(new Rectangle(0, 0, grayBmp.Width, grayBmp.Height),
-                                           System.Drawing.Imaging.ImageLockMode.ReadOnly,
-                                           System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                                          System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                                          System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             var dstData = result.LockBits(new Rectangle(0, 0, targetW, targetH),
                                           System.Drawing.Imaging.ImageLockMode.WriteOnly,
                                           System.Drawing.Imaging.PixelFormat.Format32bppArgb);
