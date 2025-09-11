@@ -195,25 +195,48 @@ namespace XTEinkTools
                 if (RenderBorder)
                     g.DrawRectangle(Pens.White, 0, 0, ultraW - 1, ultraH - 1);
 
-                using GraphicsPath gp = new();
-                // 使用与Font对象相同的em size，确保字体大小一致
-                // 直接使用Font.Size，它已经是像素单位
-                float emSizeInPixels = Font.Size;
+                // 方案5：使用DrawString方式，完全模拟legacy模式
+                // 创建放大的Font对象
+                using Font scaledFont = new Font(Font.FontFamily, Font.Size * ULTRA_SCALE, Font.Style, Font.Unit);
 
-                gp.AddString(chr.ToString(), Font.FontFamily, (int)Font.Style,
-                             emSizeInPixels, PointF.Empty, StringFormat.GenericTypographic);
+                // 应用与legacy模式相同的变换
+                g.ResetTransform();
 
-                using Matrix m = new();
+                // 垂直字体变换
+                if (IsVerticalFont)
+                {
+                    g.TranslateTransform(0, ultraH);
+                    g.RotateTransform(-90);
+                }
 
-                // 先应用字体变换（垂直、间距等），在缩放之前
-                ApplyUltraVectorTransforms(m, targetWidth, targetHeight, ULTRA_SCALE, charCodePoint);
+                // 行对齐逻辑（与legacy路径一致）
+                bool center = IsOldLineAlignment ? LineSpacingPx < 0 : true;
+                if (center)
+                {
+                    if (IsVerticalFont)
+                        g.TranslateTransform(LineSpacingPx * ULTRA_SCALE / 2f, 0);
+                    else
+                        g.TranslateTransform(0, LineSpacingPx * ULTRA_SCALE / 2f);
+                }
 
-                // 最后应用32倍缩放，以匹配超采样画布
-                m.Scale(ULTRA_SCALE, ULTRA_SCALE, MatrixOrder.Append);
+                // 字符间距（仅对非ASCII字符）
+                if (CharSpacingPx != 0 && chr > (char)255)
+                {
+                    if (IsVerticalFont)
+                        g.TranslateTransform(0, CharSpacingPx * ULTRA_SCALE / 2f);
+                    else
+                        g.TranslateTransform(CharSpacingPx * ULTRA_SCALE / 2f, 0);
+                }
 
-                gp.Transform(m);
+                // 使用与legacy模式相同的StringFormat
+                using StringFormat ultraFormat = new StringFormat(StringFormat.GenericTypographic);
+                if (IsVerticalFont)
+                    ultraFormat.FormatFlags |= StringFormatFlags.DirectionVertical;
+                else
+                    ultraFormat.FormatFlags &= ~StringFormatFlags.DirectionVertical;
 
-                g.FillPath(Brushes.White, gp);
+                // 直接使用DrawString，完全匹配legacy模式
+                g.DrawString(chr.ToString(), scaledFont, Brushes.White, 0, 0, ultraFormat);
             }
 
             var result = ApplyBayerDithering(ultra, targetWidth, targetHeight, charCodePoint);
