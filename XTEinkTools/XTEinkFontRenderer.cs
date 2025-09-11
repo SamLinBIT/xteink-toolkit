@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Drawing;
@@ -599,7 +599,7 @@ namespace XTEinkTools
         {
             // 对齐到1/4像素网格（blockSize/4的倍数）
             float gridSize = blockSize / 4.0f;
-            float alignedPosition = MathF.Round(edgeInfo.Position / gridSize) * gridSize;
+            float alignedPosition = (float)Math.Round(edgeInfo.Position / gridSize) * gridSize;
             float offset = alignedPosition - edgeInfo.Position;
 
             // 限制调整幅度
