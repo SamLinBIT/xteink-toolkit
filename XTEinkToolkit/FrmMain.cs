@@ -56,7 +56,7 @@ namespace XTEinkToolkit
             previewSurface.ScaleMode = XTEinkToolkit.Controls.CanvasControl.RenderScaleMode.PreferCenter;
             previewSurface.CanvasSize = new System.Drawing.Size(480, 800);
             chkTraditionalChinese.Checked = FrmMainCodeString.boolShowTCPreview.Contains("true");
-            btnToggleResolution.Text = "切换到 528×792";
+            btnToggleResolution.Text = "切换到 X3";
             DoPreview();
         }
 
@@ -439,11 +439,11 @@ namespace XTEinkToolkit
             use528Resolution = !use528Resolution;
             if (use528Resolution)
             {
-                btnToggleResolution.Text = "切换到 480×800";
+                btnToggleResolution.Text = "切换到 X4";
             }
             else
             {
-                btnToggleResolution.Text = "切换到 528×792";
+                btnToggleResolution.Text = "切换到 X3";
             }
             DoPreview();
         }
