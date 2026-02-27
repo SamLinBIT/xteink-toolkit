@@ -1,4 +1,4 @@
-﻿namespace XTEinkToolkit
+namespace XTEinkToolkit
 {
     partial class FrmMain
     {
@@ -41,9 +41,6 @@
             this.chkShowENCharacter = new System.Windows.Forms.RadioButton();
             this.radioButton1 = new System.Windows.Forms.RadioButton();
             this.chkTraditionalChinese = new System.Windows.Forms.RadioButton();
-            this.chkSuperSampling = new System.Windows.Forms.CheckBox();
-            this.numLanczosSharpening = new System.Windows.Forms.NumericUpDown();
-            this.lblLanczosSharpening = new System.Windows.Forms.Label();
             this.lblPreviewMessage = new System.Windows.Forms.Label();
             this.chkVerticalFont = new System.Windows.Forms.CheckBox();
             this.chkShowBorder = new System.Windows.Forms.CheckBox();
@@ -83,7 +80,6 @@
             ((System.ComponentModel.ISupportInitialize)(this.numCharSpacing)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numLineSpacing)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numFontSizePt)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.numLanczosSharpening)).BeginInit();
             this.mnuAdvancedOptions.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -125,12 +121,11 @@
             // groupBox2
             // 
             this.groupBox2.Controls.Add(this.btnAdvancedOptions);
+            this.groupBox2.Controls.Add(this.btnToggleResolution);
             this.groupBox2.Controls.Add(this.panel4);
             this.groupBox2.Controls.Add(this.lblPreviewMessage);
             this.groupBox2.Controls.Add(this.chkVerticalFont);
             this.groupBox2.Controls.Add(this.chkShowBorder);
-            this.groupBox2.Controls.Add(this.numLanczosSharpening);
-            this.groupBox2.Controls.Add(this.lblLanczosSharpening);
             this.groupBox2.Controls.Add(this.chkLandspace);
             this.groupBox2.Controls.Add(this.chkRenderGridFit);
             this.groupBox2.Controls.Add(this.chkRenderAntiAltas);
@@ -163,7 +158,6 @@
             // 
             // panel4
             // 
-            this.panel4.Controls.Add(this.chkSuperSampling);
             this.panel4.Controls.Add(this.chkShowENCharacter);
             this.panel4.Controls.Add(this.radioButton1);
             this.panel4.Controls.Add(this.chkTraditionalChinese);
@@ -193,45 +187,6 @@
             this.chkTraditionalChinese.UseVisualStyleBackColor = true;
             this.chkTraditionalChinese.CheckedChanged += new System.EventHandler(this.chkRenderGridFit_CheckedChanged);
             // 
-            // chkSuperSampling
-            //
-            resources.ApplyResources(this.chkSuperSampling, "chkSuperSampling");
-            this.chkSuperSampling.Name = "chkSuperSampling";
-            this.chkSuperSampling.UseVisualStyleBackColor = true;
-            this.chkSuperSampling.CheckedChanged += new System.EventHandler(this.chkRenderGridFit_CheckedChanged);
-            //
-            // lblLanczosSharpening
-            //
-            resources.ApplyResources(this.lblLanczosSharpening, "lblLanczosSharpening");
-            this.lblLanczosSharpening.Name = "lblLanczosSharpening";
-            //
-            // numLanczosSharpening
-            //
-            resources.ApplyResources(this.numLanczosSharpening, "numLanczosSharpening");
-            this.numLanczosSharpening.DecimalPlaces = 1;
-            this.numLanczosSharpening.Increment = new decimal(new int[] {
-            1,
-            0,
-            0,
-            65536});
-            this.numLanczosSharpening.Maximum = new decimal(new int[] {
-            20,
-            0,
-            0,
-            65536});
-            this.numLanczosSharpening.Minimum = new decimal(new int[] {
-            5,
-            0,
-            0,
-            65536});
-            this.numLanczosSharpening.Name = "numLanczosSharpening";
-            this.numLanczosSharpening.Value = new decimal(new int[] {
-            13,
-            0,
-            0,
-            65536});
-            this.numLanczosSharpening.ValueChanged += new System.EventHandler(this.numLanczosSharpening_ValueChanged);
-            //
             // lblPreviewMessage
             // 
             resources.ApplyResources(this.lblPreviewMessage, "lblPreviewMessage");
@@ -420,6 +375,13 @@
             this.btnDoGeneration.UseVisualStyleBackColor = true;
             this.btnDoGeneration.Click += new System.EventHandler(this.btnDoGeneration_Click);
             // 
+            // btnToggleResolution
+            // 
+            this.btnToggleResolution.Name = "btnToggleResolution";
+            resources.ApplyResources(this.btnToggleResolution, "btnToggleResolution");
+            this.btnToggleResolution.UseVisualStyleBackColor = true;
+            this.btnToggleResolution.Click += new System.EventHandler(this.btnToggleResolution_Click);
+            // 
             // fontDialog
             // 
             this.fontDialog.AllowVerticalFonts = false;
@@ -482,7 +444,6 @@
             ((System.ComponentModel.ISupportInitialize)(this.numCharSpacing)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numLineSpacing)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numFontSizePt)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.numLanczosSharpening)).EndInit();
             this.mnuAdvancedOptions.ResumeLayout(false);
             this.ResumeLayout(false);
 
@@ -516,9 +477,6 @@
         private System.Windows.Forms.Label lblPreviewMessage;
         private System.Windows.Forms.CheckBox chkLandspace;
         private System.Windows.Forms.RadioButton chkTraditionalChinese;
-        private System.Windows.Forms.CheckBox chkSuperSampling;
-        private System.Windows.Forms.NumericUpDown numLanczosSharpening;
-        private System.Windows.Forms.Label lblLanczosSharpening;
         private System.Windows.Forms.Label label2;
         private System.Windows.Forms.CheckBox chkVerticalFont;
         private System.Windows.Forms.Button btnChooseFontFile;
@@ -533,6 +491,7 @@
         private System.Windows.Forms.ContextMenuStrip mnuAdvancedOptions;
         private System.Windows.Forms.ToolStripMenuItem chkShowBorderInBinaryFont;
         private System.Windows.Forms.ToolStripMenuItem chkOldLineAlignment;
+        private System.Windows.Forms.Button btnToggleResolution;
     }
 }
 
