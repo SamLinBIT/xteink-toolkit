@@ -381,7 +381,7 @@ namespace XTEinkToolkit
             this.btnToggleResolution.Name = "btnToggleResolution";
             this.btnToggleResolution.Size = new System.Drawing.Size(120,30);
             this.btnToggleResolution.Location = new System.Drawing.Point(10,10);
-            this.btnToggleResolution.Text = "切换到X3"
+            this.btnToggleResolution.Text = "切换到X3";
             // resources.ApplyResources(this.btnToggleResolution, "btnToggleResolution");
             this.btnToggleResolution.UseVisualStyleBackColor = true;
             this.btnToggleResolution.Click += new System.EventHandler(this.btnToggleResolution_Click);
