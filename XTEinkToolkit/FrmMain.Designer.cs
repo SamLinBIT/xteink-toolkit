@@ -63,6 +63,7 @@ namespace XTEinkToolkit
             this.label3 = new System.Windows.Forms.Label();
             this.label1 = new System.Windows.Forms.Label();
             this.btnDoGeneration = new System.Windows.Forms.Button();
+            this.btnToggleResolution = new System.Windows.Forms.Button();
             this.fontDialog = new System.Windows.Forms.FontDialog();
             this.debounceTimer = new System.Windows.Forms.Timer(this.components);
             this.toolTip1 = new System.Windows.Forms.ToolTip(this.components);
@@ -381,7 +382,7 @@ namespace XTEinkToolkit
             this.btnToggleResolution.Size = new System.Drawing.Size(120,30);
             this.btnToggleResolution.Location = new System.Drawing.Point(10,10);
             this.btnToggleResolution.Text = "切换到X3"
-            resources.ApplyResources(this.btnToggleResolution, "btnToggleResolution");
+            // resources.ApplyResources(this.btnToggleResolution, "btnToggleResolution");
             this.btnToggleResolution.UseVisualStyleBackColor = true;
             this.btnToggleResolution.Click += new System.EventHandler(this.btnToggleResolution_Click);
             // 
