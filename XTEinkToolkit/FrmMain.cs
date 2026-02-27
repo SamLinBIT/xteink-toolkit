@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -37,6 +37,8 @@ namespace XTEinkToolkit
         bool fontSelected = false;
 
         private static Size XTScreenSize = new Size(480, 800);
+        private static Size XTScreenSize528 = new Size(528, 792);
+        private bool use528Resolution = false;
 
         private static Size SwapDirection(Size s)
         {
@@ -54,31 +56,9 @@ namespace XTEinkToolkit
             previewSurface.ScaleMode = XTEinkToolkit.Controls.CanvasControl.RenderScaleMode.PreferCenter;
             previewSurface.CanvasSize = new System.Drawing.Size(480, 800);
             chkTraditionalChinese.Checked = FrmMainCodeString.boolShowTCPreview.Contains("true");
-
-            // 初始化SuperSampling控件
-            InitializeSuperSamplingControls();
-
+            btnToggleResolution.Text = "切换到 528×792";
             DoPreview();
         }
-
-        /// <summary>
-        /// 初始化SuperSampling控件
-        /// </summary>
-        private void InitializeSuperSamplingControls()
-        {
-            // 设置标签文本
-            // 设置CheckBox默认不勾选
-            chkSuperSampling.Checked = false;
-
-            // 设置工具提示
-            toolTip1.SetToolTip(chkSuperSampling, "启用8x超采样");
-
-            // 初始化Lanczos锐化强度控件
-            numLanczosSharpening.Value = 1.3m; // 默认值1.3
-            numLanczosSharpening.Enabled = chkSuperSampling.Checked; // 只有启用超采样时才可用
-        }
-
-
 
         private void btnSelectFont_Click(object sender, EventArgs e)
         {
@@ -152,18 +132,6 @@ namespace XTEinkToolkit
         private void chkRenderGridFit_CheckedChanged(object sender, EventArgs e)
         {
             numFontGamma.Enabled = chkRenderAntiAltas.Checked;
-
-            // 控制Lanczos锐化强度控件的启用状态
-            if (sender == chkSuperSampling)
-            {
-                numLanczosSharpening.Enabled = chkSuperSampling.Checked;
-            }
-
-            DoPreview();
-        }
-
-        private void numLanczosSharpening_ValueChanged(object sender, EventArgs e)
-        {
             DoPreview();
         }
 
@@ -197,7 +165,7 @@ namespace XTEinkToolkit
                 ConfigureRenderer(renderer);
                 Size fontRenderSize = renderer.GetFontRenderSize();
 
-                var screenSize = XTScreenSize;
+                var screenSize = use528Resolution ? XTScreenSize528 : XTScreenSize;
                 var rotatedScreenSize = chkLandspace.Checked ? SwapDirection(screenSize) : screenSize;
 
                 var previewSize = rotatedScreenSize;
@@ -247,13 +215,6 @@ namespace XTEinkToolkit
             var whichAAMode = (chkRenderAntiAltas.Checked ? 2 : 0) + (chkRenderGridFit.Checked ? 1 : 0);
             renderer.CharSpacingPx = (int)numCharSpacing.Value;
             renderer.AAMode = aaModesEnum[whichAAMode];
-
-            // 配置SuperSampling模式：勾选=启用8x超采样，不勾选=无超采样
-            renderer.EnableUltimateSuperSampling = chkSuperSampling.Checked;
-
-            // 配置Lanczos锐化强度
-            renderer.LanczosSharpening = (float)numLanczosSharpening.Value;
-
         }
 
         private string GetRenderTargetSize()
@@ -471,6 +432,20 @@ namespace XTEinkToolkit
                     MessageBox.Show(this, FrmMainCodeString.abcSuccessDialogMsg, FrmMainCodeString.abcSuccessDialogTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             });
+        }
+
+        private void btnToggleResolution_Click(object sender, EventArgs e)
+        {
+            use528Resolution = !use528Resolution;
+            if (use528Resolution)
+            {
+                btnToggleResolution.Text = "切换到 480×800";
+            }
+            else
+            {
+                btnToggleResolution.Text = "切换到 528×792";
+            }
+            DoPreview();
         }
 
     }
